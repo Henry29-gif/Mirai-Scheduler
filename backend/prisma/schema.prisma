@@ -1,0 +1,388 @@
+// Prisma Schema — Nursing Home Shift Scheduler
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ──────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+// Nursing certifications (Canadian): Registered Nurse, Licensed Practical
+// Nurse, Continuing Care Assistant.
+enum Certification {
+  RN
+  LPN
+  CCA
+}
+
+enum ShiftStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  OPEN // unfilled shift available for staff to accept
+}
+
+enum SwapStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum ClockEvent {
+  CLOCK_IN
+  CLOCK_OUT
+}
+
+enum CallInStatus {
+  OPEN
+  COVERED
+  ESCALATED
+}
+
+enum TimeOffType {
+  VACATION
+  SICK
+  PERSONAL
+  UNPAID
+}
+
+enum TimeOffStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum TimecardStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ─── MODELS ─────────────────────────────────────────────────────────────────
+
+// A customer tenant — one nursing-home company. Every Facility and User belongs
+// to exactly one Organization, and all data access is scoped to it so one
+// customer can never see another's staff, pay, or schedules.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  facilities Facility[]
+  users      User[]
+}
+
+model Facility {
+  id                   String   @id @default(cuid())
+  name                 String
+  timezone             String   @default("America/New_York")
+  swapRequiresApproval Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+
+  units Unit[]
+  users User[]
+
+  @@index([organizationId])
+}
+
+model Unit {
+  id         String   @id @default(cuid())
+  name       String
+  facility   Facility @relation(fields: [facilityId], references: [id])
+  facilityId String
+  createdAt  DateTime @default(now())
+
+  staffAssignments UnitStaffAssignment[]
+  shifts           Shift[]
+}
+
+model UnitStaffAssignment {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  unit      Unit     @relation(fields: [unitId], references: [id])
+  unitId    String
+  isPrimary Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, unitId])
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone         String?
+  role          Role           @default(STAFF)
+  certification Certification?
+  hourlyRate    Float?         // pay rate, used for overtime-cost ranking
+  isActive      Boolean        @default(true)
+  facility     Facility @relation(fields: [facilityId], references: [id])
+  facilityId   String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  unitAssignments    UnitStaffAssignment[]
+  shifts             Shift[]
+  swapRequestsMade   SwapRequest[]  @relation("SwapRequestor")
+  swapRequestsTarget SwapRequest[]  @relation("SwapTarget")
+  swapApprovals      SwapRequest[]  @relation("SwapApprover")
+  clockEvents        ClockInEvent[]
+  callInReports      CallInReport[]
+  notifications      Notification[]
+  timeOffRequests    TimeOffRequest[]
+  availabilityBlocks AvailabilityBlock[]
+  refreshTokens      RefreshToken[]
+  timecardApprovals  TimecardApproval[]
+  staffDocuments     StaffDocument[]
+  staffCertifications StaffCertification[]
+}
+
+// How many staff of each certification a facility needs per shift slot, set by a
+// manager. The auto-scheduler reads these counts to decide how many shifts to
+// create for each Day/Evening/Night slot. Absent rows default to 1 (the original
+// "one of each role per shift" behavior).
+model StaffingRequirement {
+  id            String        @id @default(cuid())
+  facilityId    String
+  shift         String        // "Day" | "Evening" | "Night"
+  certification Certification // RN | LPN | CCA
+  count         Int           @default(1)
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([facilityId, shift, certification])
+  @@index([facilityId])
+}
+
+model SchedulePeriod {
+  id          String    @id @default(cuid())
+  facilityId  String
+  month       Int
+  year        Int
+  status      String    @default("DRAFT")
+  generatedAt DateTime  @default(now())
+  publishedAt DateTime?
+
+  shifts Shift[]
+
+  @@unique([facilityId, month, year])
+}
+
+model Shift {
+  id               String         @id @default(cuid())
+  unit             Unit           @relation(fields: [unitId], references: [id])
+  unitId           String
+  staff            User?          @relation(fields: [staffId], references: [id])
+  staffId          String?
+  schedulePeriod   SchedulePeriod @relation(fields: [schedulePeriodId], references: [id])
+  schedulePeriodId String
+  startTime        DateTime
+  endTime          DateTime
+  status           ShiftStatus    @default(DRAFT)
+  requiredCertification Certification? // skill required to work this shift
+  openReason       String?        // why a shift is OPEN: UNFILLED | SICK | SWAP
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  swapRequestsAsOriginal SwapRequest[]  @relation("OriginalShift")
+  swapRequestsAsOffered  SwapRequest[]  @relation("OfferedShift")
+  clockEvents            ClockInEvent[]
+  callInReports          CallInReport[]
+
+  @@index([staffId, startTime])
+  @@index([unitId, startTime])
+}
+
+model SwapRequest {
+  id              String     @id @default(cuid())
+  requestor       User       @relation("SwapRequestor", fields: [requestorId], references: [id])
+  requestorId     String
+  target          User       @relation("SwapTarget", fields: [targetId], references: [id])
+  targetId        String
+  originalShift   Shift      @relation("OriginalShift", fields: [originalShiftId], references: [id])
+  originalShiftId String
+  offeredShift    Shift      @relation("OfferedShift", fields: [offeredShiftId], references: [id])
+  offeredShiftId  String
+  status          SwapStatus @default(PENDING)
+  approver        User?      @relation("SwapApprover", fields: [approverId], references: [id])
+  approverId      String?
+  message         String?
+  resolvedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model ClockInEvent {
+  id               String     @id @default(cuid())
+  user             User       @relation(fields: [userId], references: [id])
+  userId           String
+  facilityId       String?
+  shift            Shift?     @relation(fields: [shiftId], references: [id])
+  shiftId          String?
+  event            ClockEvent
+  timestamp        DateTime   @default(now())
+  latitude         Float?
+  longitude        Float?
+  isWithinGeofence Boolean    @default(true)
+
+  @@index([userId, timestamp])
+  @@index([facilityId, timestamp])
+}
+
+model CallInReport {
+  id         String       @id @default(cuid())
+  staff      User         @relation(fields: [staffId], references: [id])
+  staffId    String
+  shift      Shift        @relation(fields: [shiftId], references: [id])
+  shiftId    String
+  reason     String?
+  status     CallInStatus @default(OPEN)
+  reportedAt DateTime     @default(now())
+  coveredAt  DateTime?
+  smsSentAt  DateTime?
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  title     String
+  body      String
+  type      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// A recurring weekly slot a staff member is NOT available to work.
+// Absence of a row = available. The auto-scheduler skips matching slots.
+model AvailabilityBlock {
+  id        String @id @default(cuid())
+  user      User   @relation(fields: [userId], references: [id])
+  userId    String
+  dayOfWeek Int    // 0=Sunday … 6=Saturday
+  shift     String // "Day" | "Evening" | "Night"
+
+  @@unique([userId, dayOfWeek, shift])
+  @@index([userId])
+}
+
+// Staff time-off / leave requests. Approved leave blocks the auto-scheduler.
+model TimeOffRequest {
+  id         String        @id @default(cuid())
+  user       User          @relation(fields: [userId], references: [id])
+  userId     String
+  facilityId String
+  type       TimeOffType   @default(VACATION)
+  startDate  DateTime
+  endDate    DateTime
+  reason     String?
+  status     TimeOffStatus @default(PENDING)
+  reviewerId String?       // manager/admin who approved or denied
+  reviewedAt DateTime?
+  createdAt  DateTime      @default(now())
+
+  @@index([facilityId, status])
+  @@index([userId])
+}
+
+// Compliance / accountability log — immutable record of who did what, when.
+model AuditLog {
+  id         String   @id @default(cuid())
+  facilityId String
+  actorId    String?  // user who performed the action (null = system)
+  actorName  String
+  action     String   // e.g. SCHEDULE_GENERATED, SHIFT_ASSIGNED, CALLED_IN_SICK
+  summary    String   // human-readable description
+  entityType String?  // e.g. Shift, SchedulePeriod
+  entityId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([facilityId, createdAt])
+}
+
+// A staff member's professional certification/credential (e.g. RN License, CPR,
+// First Aid) with an expiry date. Staff manage their own; managers/admins view them.
+model StaffCertification {
+  id         String    @id @default(cuid())
+  user       User      @relation(fields: [userId], references: [id])
+  userId     String
+  name       String
+  number     String?
+  expiryDate DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+// HR documents (PDFs) an admin uploads for a staff member — stored in the DB so
+// no external file store is needed. Downloaded individually or merged into one PDF.
+model StaffDocument {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  facilityId   String
+  filename     String
+  mimeType     String   @default("application/pdf")
+  size         Int
+  data         Bytes
+  uploadedById String
+  source       String   @default("ADMIN") // "ADMIN" (HR doc) | "STAFF" (staff-uploaded cert doc)
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([facilityId])
+}
+
+// A manager's sign-off on one staff member's worked hours for a single
+// calendar day, before those hours flow to payroll. One row per (user, day).
+// Presence of an APPROVED row = approved; managers can reopen by deleting it.
+model TimecardApproval {
+  id         String         @id @default(cuid())
+  user       User           @relation(fields: [userId], references: [id])
+  userId     String
+  facilityId String
+  date       DateTime       // calendar day at UTC midnight
+  minutes    Int            // snapshot of minutes approved (for payroll trail)
+  status     TimecardStatus @default(APPROVED)
+  reviewerId String         // manager/admin who approved
+  reviewedAt DateTime       @default(now())
+  note       String?
+
+  @@unique([userId, date])
+  @@index([facilityId, date])
+}

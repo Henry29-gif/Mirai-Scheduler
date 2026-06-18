@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Render Blueprint — deploys the NurseScheduler backend with one click.
+#
+# In Render:  New ▸ Blueprint ▸ connect your GitHub repo ▸ Apply.
+# This provisions three things automatically:
+#   • the API web service (this backend)
+#   • a managed PostgreSQL database  (DATABASE_URL wired in for you)
+#   • a managed Redis instance       (REDIS_URL wired in for you)
+#
+# After the first deploy, open the API service ▸ Environment and fill in the
+# values marked "sync: false" below (JWT_SECRET is generated automatically).
+# Plan names / pricing can be adjusted in the dashboard if Render asks.
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  - type: web
+    name: nursescheduler-api
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: backend                       # the API lives in /backend within the repo
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run db:push && npm run start   # sync schema, then boot
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true                # Render generates a strong secret
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nursescheduler-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nursescheduler-redis
+          property: connectionString
+      - key: ALLOWED_ORIGINS
+        sync: false                        # e.g. https://app.yourdomain.com  (your web app origin)
+      - key: APP_WEB_URL
+        sync: false                        # e.g. https://app.yourdomain.com  (used in reset-password emails)
+      - key: RESEND_API_KEY
+        sync: false                        # from resend.com — leave blank to keep emails in dev-log mode
+      - key: EMAIL_FROM
+        sync: false                        # e.g. NurseScheduler <noreply@yourdomain.com>
+      - key: SENTRY_DSN
+        sync: false                        # from sentry.io — leave blank to disable error tracking
+
+  - type: redis
+    name: nursescheduler-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction            # required for BullMQ job queues
+    ipAllowList: []                        # internal access only (no public Redis)
+
+databases:
+  - name: nursescheduler-db
+    region: oregon
+    plan: starter
+    databaseName: nursing_scheduler
+    user: nursescheduler

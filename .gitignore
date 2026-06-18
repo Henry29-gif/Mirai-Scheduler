@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets (the .env.example templates ARE committed)
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+web/dist/
+
+# Expo / native signing material — never commit these
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.keystore
+
+# Logs & OS junk
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
