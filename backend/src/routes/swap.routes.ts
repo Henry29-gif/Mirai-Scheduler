@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth.middleware";
 import { prisma } from "../config/prisma";
 import { logAudit, facilityOfShift } from "../services/audit.service";
-import { notify } from "../services/notify.service";
+import { notify, notifySupervisors } from "../services/notify.service";
 import { assertFacilityInScope } from "../utils/tenant";
 
 const router = Router();
@@ -127,7 +127,16 @@ router.post("/", async (req: AuthRequest, res, next) => {
       summary: `Proposed a shift trade`, entityType: "SwapRequest", entityId: swap.id,
     });
     const me = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { firstName: true, lastName: true } });
-    await notify(offered.staffId, "New shift trade request", `${me?.firstName} ${me?.lastName} wants to trade shifts with you.`, "info");
+    await notify(offered.staffId, "New shift trade request", `${me?.firstName} ${me?.lastName} wants to trade shifts with you.`, "info", { kind: "SWAP_REQUEST", id: swap.id });
+    // Keep supervisors in the loop on trade activity (notification bell, web + mobile).
+    const target = await prisma.user.findUnique({ where: { id: offered.staffId }, select: { firstName: true, lastName: true } });
+    await notifySupervisors(
+      req.user!.id,
+      "Shift trade requested",
+      `${me?.firstName} ${me?.lastName} asked ${target?.firstName} ${target?.lastName} to trade shifts.`,
+      "info",
+      [req.user!.id],
+    );
     res.status(201).json({ message: "Trade request sent ✓", swapId: swap.id });
   } catch (err) { next(err); }
 });
@@ -192,6 +201,18 @@ router.post("/:id/respond", async (req: AuthRequest, res, next) => {
       summary: `Completed a shift trade`, entityType: "SwapRequest", entityId: swap.id,
     });
     await notify(swap.requestorId, "Trade accepted", "Your shift trade was accepted — your schedule has been updated.", "success");
+    // A trade actually changed the schedule — alert supervisors (bell, web + mobile).
+    const [reqUser, tgtUser] = await Promise.all([
+      prisma.user.findUnique({ where: { id: swap.requestorId }, select: { firstName: true, lastName: true } }),
+      prisma.user.findUnique({ where: { id: swap.targetId }, select: { firstName: true, lastName: true } }),
+    ]);
+    await notifySupervisors(
+      swap.requestorId,
+      "Shift trade completed",
+      `${reqUser?.firstName} ${reqUser?.lastName} and ${tgtUser?.firstName} ${tgtUser?.lastName} traded shifts — the schedule was updated.`,
+      "success",
+      [req.user!.id],
+    );
     res.json({ message: "Shifts traded ✓" });
   } catch (err) { next(err); }
 });

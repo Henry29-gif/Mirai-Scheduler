@@ -20,36 +20,42 @@ const API = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.109:4000";
 
 // Design system palette — light + dark
 const LIGHT = {
-  bg: "#F7F8FA", surface: "#FFFFFF", surface2: "#FBFCFD",
-  text: "#0F1B2D", text2: "#5B677A",
-  brand: "#14263D", accent: "#2AA6A1", accentSoft: "#E6F5F4",
-  success: "#2F8F6B", successSoft: "#EAF6F1",
-  warning: "#B7842B", warningSoft: "#FFF6E5",
-  error: "#C64545", errorSoft: "#FBEAEA",
-  border: "#E6EAF0", borderInput: "#DDE3EA",
+  bg: "#F4F6FB", surface: "#FFFFFF", surface2: "#F8FAFE",
+  text: "#1B2440", text2: "#647089",
+  brand: "#3A5BDC", accent: "#15B8A6", accentSoft: "#E4F7F4",
+  coral: "#EF7448", coralSoft: "#FDEBE3",
+  success: "#2BA46F", successSoft: "#E5F5EC",
+  warning: "#C9881F", warningSoft: "#FCF3E0",
+  error: "#E25563", errorSoft: "#FCEBEE",
+  border: "#E4E8F2", borderInput: "#D7DDEA",
 };
 const DARK = {
-  bg: "#0B1220", surface: "#111B2E", surface2: "#0F1A2B",
-  text: "#E6EDF5", text2: "#AAB6C5",
-  brand: "#16273F", accent: "#34BDB7", accentSoft: "#14302F",
-  success: "#5DCAA5", successSoft: "#122A22",
-  warning: "#E3B266", warningSoft: "#2C2415",
-  error: "#E07A7A", errorSoft: "#2C1717",
-  border: "#1E2C44", borderInput: "#26344D",
+  bg: "#0E1424", surface: "#161E33", surface2: "#121A2E",
+  text: "#E8EDF7", text2: "#9FB0C9",
+  brand: "#2E4AB0", accent: "#2BD0BE", accentSoft: "#103029",
+  coral: "#FB8C66", coralSoft: "#3A2419",
+  success: "#46C892", successSoft: "#102A20",
+  warning: "#E6B45A", warningSoft: "#2C2415",
+  error: "#EF7A86", errorSoft: "#2E1A1D",
+  border: "#243352", borderInput: "#2C3C5C",
 };
 // Current palette + stylesheet — reassigned by <App> when the theme changes.
 let C = LIGHT;
 const ROLE_COLORS = {
-  ADMIN: { bg: "#E9EDF3", fg: "#1B3554" },
-  MANAGER: { bg: "#E6F5F4", fg: "#1E7A75" },
-  STAFF: { bg: "#EEF1F5", fg: "#5B677A" },
+  ADMIN: { bg: "#EAEEFB", fg: "#2C46B8" },
+  MANAGER: { bg: "#E4F7F4", fg: "#0E7E72" },
+  STAFF: { bg: "#EEF1F6", fg: "#647089" },
 };
 const CERT_COLORS = {
-  RN: { bg: "#E9EDF3", fg: "#1B3554" },
-  LPN: { bg: "#E6F5F4", fg: "#1E7A75" },
-  CCA: { bg: "#ECF1FB", fg: "#3A62B0" },
+  RN: { bg: "#EAEEFB", fg: "#2C46B8" },
+  LPN: { bg: "#E4F7F4", fg: "#0E7E72" },
+  CCA: { bg: "#FDEBE3", fg: "#B0512B" },
 };
 const REASON = { SICK: "Sick call-in", SWAP: "Dropped", UNFILLED: "Open" };
+
+// Set by the root component to its signOut — called when the server says a
+// session is dead (401 on an authenticated call: expired or revoked token).
+let onSessionExpired = () => {};
 
 async function api(path, { method = "GET", body, token } = {}) {
   const res = await fetch(API + path, {
@@ -58,6 +64,7 @@ async function api(path, { method = "GET", body, token } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && token) onSessionExpired(token); // login sends no token, so bad passwords are unaffected
   if (!res.ok) throw new Error(data.message || `Request failed (${res.status})`);
   return data;
 }
@@ -109,10 +116,10 @@ function LoginScreen({ onLogin, theme, onToggleTheme }) {
       <View style={styles.loginTheme}><ThemeToggle theme={theme} onToggle={onToggleTheme} /></View>
       <View style={styles.loginCard}>
         <View style={styles.brandRow}>
-          <View style={styles.mark}><Text style={styles.markText}>+</Text></View>
-          <Text style={styles.brandTitle}>NurseScheduler</Text>
+          <View style={styles.mark}><Text style={styles.markText}>M</Text></View>
+          <Text style={styles.brandTitle}>Mirai</Text>
         </View>
-        <Text style={styles.muted}>{mode === "signin" ? "Sign in to manage shifts" : "Enter your email and we'll send a reset link"}</Text>
+        <Text style={styles.muted}>{mode === "signin" ? "Every shift, in sync" : "Enter your email and we'll send a reset link"}</Text>
 
         <Text style={styles.label}>Email</Text>
         <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
@@ -155,6 +162,7 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
   const [notifs, setNotifs] = useState([]);
   const [unread, setUnread] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [notifActed, setNotifActed] = useState({}); // notifId -> result label after Accept/Decline
   const [view, setView] = useState("home");
   const [moreOpen, setMoreOpen] = useState(false);
   const [clock, setClock] = useState({ clockedIn: false, since: null, todayMinutes: 0 });
@@ -186,9 +194,12 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
   const [myDocs, setMyDocs] = useState([]);            // my own certification documents (staff)
 
   const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  const monthName = now.toLocaleString("default", { month: "long" });
+  // Viewed month — flips with the ‹ › month switcher (defaults to the current month).
+  const [period, setPeriod] = useState({ month: now.getMonth() + 1, year: now.getFullYear() });
+  const month = period.month;
+  const year = period.year;
+  const monthName = new Date(year, month - 1, 1).toLocaleString("default", { month: "long" });
+  const shiftMonth = (delta) => setPeriod((p) => { const d = new Date(p.year, p.month - 1 + delta, 1); return { month: d.getMonth() + 1, year: d.getFullYear() }; });
   const isManager = user.role === "ADMIN" || user.role === "MANAGER";
   const isAdmin = user.role === "ADMIN";
   const myCert = me?.certification;
@@ -197,6 +208,14 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
   const relColor = (label) => label === "Excellent" ? C.success : label === "Good" ? C.accent : label === "Fair" ? C.warning : label === "At risk" ? C.error : C.text2;
   const pad2 = (n) => String(n).padStart(2, "0");
   const currentSiteName = sites.find((s) => s.id === siteId)?.name;
+  // ‹ Month Year › navigator, shown on every month-scoped view.
+  const monthNav = (
+    <View style={styles.monthNav}>
+      <TouchableOpacity style={[styles.monthNavBtn, busy && { opacity: 0.4 }]} disabled={busy} onPress={() => shiftMonth(-1)}><Ionicons name="chevron-back" size={18} color={C.text2} /></TouchableOpacity>
+      <Text style={styles.monthNavLabel}>{monthName} {year}</Text>
+      <TouchableOpacity style={[styles.monthNavBtn, busy && { opacity: 0.4 }]} disabled={busy} onPress={() => shiftMonth(1)}><Ionicons name="chevron-forward" size={18} color={C.text2} /></TouchableOpacity>
+    </View>
+  );
   // Reusable site switcher (admin) — chips to jump between facilities, usable on
   // any admin screen. Renders null for non-admins / single-site.
   const siteSwitcher = isAdmin && sites.length > 0 ? (
@@ -215,13 +234,33 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
     if (days <= 30) return { label: `Expires in ${days}d`, color: C.warning };
     return { label: "Valid", color: C.success };
   };
-  const staffingVal = (shift, cert) => { const r = staffing.find((x) => x.shift === shift && x.certification === cert); return r ? String(r.count) : "1"; };
-  const setStaffingCell = (shift, cert, v) => { const count = Math.max(0, Math.min(20, parseInt(v, 10) || 0)); setStaffing((rows) => [...rows.filter((x) => !(x.shift === shift && x.certification === cert)), { shift, certification: cert, count }]); };
+  const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  // Every calendar date in the current month — drives the per-date staffing grid.
+  const scheduleDates = (() => {
+    const pad = (x) => String(x).padStart(2, "0");
+    const last = new Date(year, month, 0).getDate(); // last day of the (1-based) month
+    const out = [];
+    for (let day = 1; day <= last; day++) {
+      const d = new Date(year, month - 1, day);
+      out.push({ dateStr: `${year}-${pad(month)}-${pad(day)}`, label: `${WEEKDAY_ABBR[d.getDay()]} · ${MONTHS_SHORT[month - 1]} ${day}` });
+    }
+    return out;
+  })();
+  const staffingVal = (dateStr, shift, cert) => { const r = staffing.find((x) => x.date === dateStr && x.shift === shift && x.certification === cert); return r ? String(r.count) : "1"; };
+  const setStaffingCell = (dateStr, shift, cert, v) => { const count = Math.max(0, Math.min(20, parseInt(v, 10) || 0)); setStaffing((rows) => [...rows.filter((x) => !(x.date === dateStr && x.shift === shift && x.certification === cert)), { date: dateStr, shift, certification: cert, count }]); };
+  const copyStaffingToAllDays = (fromDateStr) => setStaffing((rows) => { const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"]; const at = (s, c) => { const r = rows.find((x) => x.date === fromDateStr && x.shift === s && x.certification === c); return r ? r.count : 1; }; const out = []; for (const { dateStr } of scheduleDates) for (const s of SH) for (const c of CE) out.push({ date: dateStr, shift: s, certification: c, count: at(s, c) }); return out; });
 
-  async function loadAll() {
+  // Guard against out-of-order responses: each load run remembers the
+  // site+month it started for and only writes state if the user is still
+  // viewing that combination when the response arrives.
+  const viewKeyRef = useRef("");
+  viewKeyRef.current = `${siteId}|${month}|${year}`;
+
+  // Data that doesn't depend on the viewed month (profile, inbox, clock, …) —
+  // reloaded on sign-in / site change / after actions, NOT on month flips.
+  async function loadSessionData() {
     try { setMe((await api("/api/users/me", { token })).user); } catch {}
-    try { setShifts((await api(`/api/schedules?month=${month}&year=${year}${siteQ}`, { token })).shifts || []); } catch { setShifts([]); }
-    try { setOpen((await api(`/api/shifts/open?month=${month}&year=${year}${siteQ}`, { token })).openShifts || []); } catch { setOpen([]); }
     try { setIncoming((await api("/api/swaps", { token })).incoming || []); } catch { setIncoming([]); }
     try { setTimeoff((await api(`/api/timeoff${isManager && siteId && isAdmin ? `?facilityId=${siteId}` : ""}`, { token })).requests || []); } catch { setTimeoff([]); }
     try { setAvailability((await api("/api/availability", { token })).blocks || []); } catch { setAvailability([]); }
@@ -230,22 +269,49 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
     try { setTimecard(await api("/api/clock/timecard?days=14", { token })); } catch { setTimecard(null); }
     try { setCerts((await api("/api/certifications", { token })).certifications || []); } catch { setCerts([]); }
     await loadMyDocs();
-    if (isAdmin) { try { setRoster((await api(`/api/staff/roster?month=${month}&year=${year}${siteQ}`, { token })).staff || []); } catch { setRoster([]); } }
     if (isManager) { try { setAttendance(await api(`/api/clock/attendance${siteId && isAdmin ? `?facilityId=${siteId}` : ""}`, { token })); } catch { setAttendance({ onNow: [], totalStaff: 0 }); } }
-    if (isManager) { try { setWorkload(await api(`/api/schedules/workload?month=${month}&year=${year}${siteQ}`, { token })); } catch { setWorkload({ periodId: null, status: null, staff: [], summary: { min: 0, max: 0, openShifts: 0, totalAssigned: 0 } }); } }
     if (isManager) { try { setFacTimecards(await api(`/api/clock/facility-timecards?days=14${siteQ}`, { token })); } catch { setFacTimecards({ staff: [], rangeDays: 14 }); } }
+  }
+  // Month-scoped data. Every write checks the guard so a slow response for a
+  // month the user already flipped away from can never overwrite the new one.
+  async function loadMonthData() {
+    const key = `${siteId}|${month}|${year}`;
+    const fresh = () => viewKeyRef.current === key;
+    try { const v = (await api(`/api/schedules?month=${month}&year=${year}${siteQ}`, { token })).shifts || []; if (fresh()) setShifts(v); } catch { if (fresh()) setShifts([]); }
+    try { const v = (await api(`/api/shifts/open?month=${month}&year=${year}${siteQ}`, { token })).openShifts || []; if (fresh()) setOpen(v); } catch { if (fresh()) setOpen([]); }
+    if (isAdmin) { try { const v = (await api(`/api/staff/roster?month=${month}&year=${year}${siteQ}`, { token })).staff || []; if (fresh()) setRoster(v); } catch { if (fresh()) setRoster([]); } }
+    if (isManager) { try { const v = await api(`/api/schedules/workload?month=${month}&year=${year}${siteQ}`, { token }); if (fresh()) setWorkload(v); } catch { if (fresh()) setWorkload({ periodId: null, status: null, staff: [], summary: { min: 0, max: 0, openShifts: 0, totalAssigned: 0 } }); } }
   }
   async function loadStaffing() {
     if (!isManager) return;
-    try { setStaffing((await api(`/api/schedules/requirements${isAdmin && siteId ? `?facilityId=${siteId}` : ""}`, { token })).requirements || []); } catch { setStaffing([]); }
+    const key = `${siteId}|${month}|${year}`;
+    const fresh = () => viewKeyRef.current === key;
+    try { const v = (await api(`/api/schedules/requirements?month=${month}&year=${year}${isAdmin && siteId ? `&facilityId=${siteId}` : ""}`, { token })).requirements || []; if (fresh()) setStaffing(v); } catch { if (fresh()) setStaffing([]); }
   }
-  useEffect(() => { loadStaffing(); }, [siteId]);
+  async function loadAll() {
+    await loadMonthData();
+    await loadStaffing();
+    await loadSessionData();
+  }
+  // When the viewed month changes, snap the schedule date range to that month.
+  useEffect(() => {
+    const p = (x) => String(x).padStart(2, "0");
+    setSchedRange({ start: `${year}-${p(month)}-01`, end: `${year}-${p(month)}-${p(new Date(year, month, 0).getDate())}` });
+  }, [month, year]);
   // Load sites once (admin), then (re)load everything whenever the site changes.
   useEffect(() => {
     if (!isAdmin) return;
     api("/api/facilities", { token }).then((d) => { setSites(d.facilities || []); if (d.facilities?.length && !siteId) setSiteId(d.facilities[0].id); }).catch(() => {});
   }, []);
-  useEffect(() => { loadAll(); }, [siteId]);
+  useEffect(() => { loadSessionData(); }, [siteId]);
+  useEffect(() => {
+    // Clear month-scoped data immediately so the previous month can never
+    // linger under the new month's header, then fetch the new month.
+    setShifts([]); setOpen([]); setRoster([]);
+    setWorkload({ periodId: null, status: null, staff: [], summary: { min: 0, max: 0, openShifts: 0, totalAssigned: 0 } });
+    setStaffing([]);
+    loadMonthData(); loadStaffing();
+  }, [siteId, month, year]);
   const toggleClock = () => act(() => api("/api/clock", { method: "POST", token }), null);
   // Poll for new notifications every 30s.
   useEffect(() => {
@@ -287,6 +353,23 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
     setToStart(""); setToEnd(""); setToReason("");
   }, "Time-off request submitted.");
   const respondTimeoff = (id, approve) => act(() => api(`/api/timeoff/${id}/respond`, { method: "POST", token, body: { approve } }), approve ? "Leave approved." : "Leave denied.");
+  // Accept/Decline a request straight from the notification bell. `yes` = approve/accept.
+  async function actOnNotif(n, yes) {
+    const m = n.metadata || {};
+    let path, body;
+    if (m.kind === "TIMEOFF_REQUEST") { path = `/api/timeoff/${m.id}/respond`; body = { approve: yes }; }
+    else if (m.kind === "SWAP_REQUEST") { path = `/api/swaps/${m.id}/respond`; body = { accept: yes }; }
+    else return;
+    setNotifActed((s) => ({ ...s, [n.id]: "…" }));
+    try {
+      await api(path, { method: "POST", token, body });
+      setNotifActed((s) => ({ ...s, [n.id]: yes ? "Accepted ✓" : "Declined" }));
+    } catch (e) {
+      const already = /review|resolv|already/i.test(e.message || "");
+      setNotifActed((s) => ({ ...s, [n.id]: already ? "Already handled" : (e.message || "Couldn't update") }));
+    }
+    loadAll();
+  }
 
   // Permanently delete the signed-in user's account (Apple 5.1.1(v) / Play).
   function deleteAccount() {
@@ -440,8 +523,8 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
     <SafeAreaView style={styles.flex}>
       <View style={styles.topbar}>
         <View style={styles.brandRow}>
-          <View style={styles.markSm}><Text style={styles.markTextSm}>+</Text></View>
-          <Text style={styles.topTitle}>NurseScheduler</Text>
+          <View style={styles.markSm}><Text style={styles.markTextSm}>M</Text></View>
+          <Text style={styles.topTitle}>Mirai</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
           <TouchableOpacity style={styles.themeToggle} onPress={openNotifs}>
@@ -461,6 +544,14 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
               <View key={n.id} style={[styles.notifItem, !n.isRead && { backgroundColor: C.accentSoft }]}>
                 <Text style={styles.notifTitle}>{n.title}</Text>
                 <Text style={styles.muted}>{n.body}</Text>
+                {(n.metadata?.kind === "TIMEOFF_REQUEST" || n.metadata?.kind === "SWAP_REQUEST") && (
+                  notifActed[n.id]
+                    ? <Text style={styles.notifActed}>{notifActed[n.id]}</Text>
+                    : <View style={styles.notifActions}>
+                        <TouchableOpacity style={[styles.notifBtn, styles.notifAccept]} onPress={() => actOnNotif(n, true)}><Text style={styles.notifAcceptTxt}>Accept</Text></TouchableOpacity>
+                        <TouchableOpacity style={[styles.notifBtn, styles.notifDecline]} onPress={() => actOnNotif(n, false)}><Text style={styles.notifDeclineTxt}>Decline</Text></TouchableOpacity>
+                      </View>
+                )}
               </View>
             ))}
           </View>
@@ -507,6 +598,7 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
             {siteSwitcher}
           </View>
         )}
+        <View style={[styles.card, { paddingVertical: 10 }]}>{monthNav}</View>
         <View style={styles.card}>
           <Text style={styles.welcome}>Welcome, {user.firstName}</Text>
           <View style={styles.rowMid}>
@@ -757,6 +849,7 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
           <View style={styles.card}>
             {siteSwitcher}
             <Text style={styles.cardTitle}>My Staff{sites.find((s) => s.id === siteId) ? ` · ${sites.find((s) => s.id === siteId).name}` : ""}</Text>
+            <View style={{ marginBottom: 10 }}>{monthNav}</View>
             {roster.length === 0 ? <Text style={styles.empty}>No staff at this site.</Text> : roster.map((s) => (
               <View key={s.userId}>
                 <TouchableOpacity style={styles.shiftRow} onPress={() => { const open = staffSel === s.userId; setStaffSel(open ? null : s.userId); if (!open) { setDocMsg(""); loadStaffDocs(s.userId); loadStaffCerts(s.userId); } }}>
@@ -836,21 +929,7 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
           <View style={styles.card}>
             {siteSwitcher}
             <Text style={styles.cardTitle}>Staffing needs{currentSiteName ? ` · ${currentSiteName}` : ""}</Text>
-            <Text style={[styles.muted, { marginBottom: 8 }]}>How many of each role per shift. 0 = none. Save, then Generate.</Text>
-            <View style={styles.gridRow}>
-              <Text style={styles.gridLabel}></Text>
-              {["RN", "LPN", "CCA"].map((c) => <Text key={c} style={styles.gridHeadCell}>{c}</Text>)}
-            </View>
-            {["Day", "Evening", "Night"].map((shift) => (
-              <View key={shift} style={styles.gridRow}>
-                <Text style={styles.gridLabel}>{shift}</Text>
-                {["RN", "LPN", "CCA"].map((cert) => (
-                  <TextInput key={cert} style={styles.gridInput} keyboardType="number-pad" value={staffingVal(shift, cert)} onChangeText={(v) => setStaffingCell(shift, cert, v)} />
-                ))}
-              </View>
-            ))}
-            <TouchableOpacity style={[styles.btn, { marginTop: 12 }]} onPress={saveStaffing} disabled={busy}><Text style={styles.btnText}>Save needs</Text></TouchableOpacity>
-
+            <View style={{ marginBottom: 10 }}>{monthNav}</View>
             <Text style={styles.label}>Schedule dates</Text>
             <View style={{ flexDirection: "row", gap: 10 }}>
               <TouchableOpacity style={[styles.input, { flex: 1, justifyContent: "center" }]} onPress={() => setSchedPickerFor("start")}><Text style={{ color: C.text, fontSize: 15 }}>{fmtDay(schedRange.start)}</Text></TouchableOpacity>
@@ -859,7 +938,31 @@ function DashboardScreen({ token, user, onLogout, theme, onToggleTheme }) {
             {schedPickerFor && (
               <DateTimePicker value={new Date((schedPickerFor === "start" ? schedRange.start : schedRange.end) + "T00:00:00")} mode="date" onChange={onSchedPick} />
             )}
-            <TouchableOpacity style={[styles.btn, { marginTop: 12 }]} onPress={generateRange} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Generate schedule</Text>}</TouchableOpacity>
+            <Text style={[styles.muted, { marginTop: 12, marginBottom: 8 }]}>How many of each role per shift, per date. 0 = none. Use "Copy to all days" to fill the month, then Save &amp; Generate.</Text>
+            <View style={styles.gridRow}>
+              <Text style={styles.gridLabel}></Text>
+              {["RN", "LPN", "CCA"].map((c) => <Text key={c} style={styles.gridHeadCell}>{c}</Text>)}
+            </View>
+            {scheduleDates.map(({ dateStr, label }, i) => (
+              <View key={dateStr}>
+                <View style={styles.staffDayRow}>
+                  <Text style={styles.staffDayLabel}>{label}</Text>
+                  {i === 0 ? <TouchableOpacity onPress={() => copyStaffingToAllDays(dateStr)}><Text style={styles.linkTrade}>Copy to all days</Text></TouchableOpacity> : null}
+                </View>
+                {["Day", "Evening", "Night"].map((shift) => (
+                  <View key={shift} style={styles.gridRow}>
+                    <Text style={styles.gridLabel}>{shift}</Text>
+                    {["RN", "LPN", "CCA"].map((cert) => (
+                      <TextInput key={cert} style={styles.gridInput} keyboardType="number-pad" value={staffingVal(dateStr, shift, cert)} onChangeText={(v) => setStaffingCell(dateStr, shift, cert, v)} />
+                    ))}
+                  </View>
+                ))}
+              </View>
+            ))}
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <TouchableOpacity style={[styles.btn, { flex: 1, marginTop: 0 }]} onPress={saveStaffing} disabled={busy}><Text style={styles.btnText}>Save needs</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, { flex: 1, marginTop: 0 }]} onPress={generateRange} disabled={busy}>{busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Generate</Text>}</TouchableOpacity>
+            </View>
             {msg ? <Text style={styles.note}>{msg}</Text> : null}
           </View>
 
@@ -988,6 +1091,9 @@ export default function App() {
     } catch {}
   };
   const signOut = () => { setAuth(null); clearSession(); };
+  // Bounce dead sessions to login — but only when the rejected token is still
+  // the CURRENT one (a late 401 from a stale request must not kill a new session).
+  onSessionExpired = (badToken) => { if (auth && badToken === auth.token) signOut(); };
 
   // Restore a saved session on launch — unless it's been idle longer than IDLE_MS.
   useEffect(() => {
@@ -1095,6 +1201,12 @@ const makeStyles = (C) => StyleSheet.create({
   gridLabel: { width: 70, color: C.text, fontWeight: "500", fontSize: 14 },
   gridHeadCell: { flex: 1, textAlign: "center", color: C.text2, fontSize: 12, fontWeight: "600" },
   gridInput: { flex: 1, marginHorizontal: 4, borderWidth: 1, borderColor: C.borderInput, borderRadius: 8, height: 42, textAlign: "center", fontSize: 16, color: C.text },
+  staffDayRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16, marginBottom: 6 },
+  staffDayLabel: { fontWeight: "600", color: C.text, fontSize: 14 },
+  staffDates: { color: C.text2, fontSize: 12, marginTop: 6 },
+  monthNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  monthNavBtn: { width: 36, height: 36, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" },
+  monthNavLabel: { fontWeight: "600", color: C.text, fontSize: 15 },
   tcStaff: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, marginTop: 10 },
   tcRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, paddingLeft: 8 },
 
@@ -1131,6 +1243,13 @@ const makeStyles = (C) => StyleSheet.create({
   notifDotText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   notifItem: { paddingVertical: 10, paddingHorizontal: 10, borderRadius: 8, borderBottomWidth: 1, borderBottomColor: C.border, marginBottom: 2 },
   notifTitle: { fontWeight: "500", color: C.text, fontSize: 14 },
+  notifActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  notifBtn: { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
+  notifAccept: { backgroundColor: C.accent },
+  notifAcceptTxt: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  notifDecline: { borderWidth: 1, borderColor: C.border },
+  notifDeclineTxt: { color: C.text2, fontWeight: "700", fontSize: 13 },
+  notifActed: { marginTop: 8, fontWeight: "700", fontSize: 13, color: C.accent },
   moreItem: { paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: C.border },
 });
 let styles = makeStyles(C);

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, requireRole, AuthRequest } from "../middleware/auth.middleware";
 import { prisma } from "../config/prisma";
 import { logAudit } from "../services/audit.service";
-import { notify } from "../services/notify.service";
+import { notify, notifySupervisors } from "../services/notify.service";
 import { resolveScopedFacility, assertFacilityInScope } from "../utils/tenant";
 
 const router = Router();
@@ -36,6 +36,16 @@ router.post("/", async (req: AuthRequest, res, next) => {
       summary: `Requested ${reqRow.type.toLowerCase()} leave ${start.toLocaleDateString()}–${end.toLocaleDateString()}`,
       entityType: "TimeOffRequest", entityId: reqRow.id,
     });
+    // Notify supervisors of the new request so they can review it (bell, web + mobile).
+    const requester = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { firstName: true, lastName: true } });
+    await notifySupervisors(
+      req.user!.id,
+      "Time-off request",
+      `${requester?.firstName} ${requester?.lastName} requested ${reqRow.type.toLowerCase()} leave (${start.toLocaleDateString()} – ${end.toLocaleDateString()}).`,
+      "info",
+      [req.user!.id],
+      { kind: "TIMEOFF_REQUEST", id: reqRow.id },
+    );
     res.status(201).json({ message: "Time-off request submitted ✓", id: reqRow.id });
   } catch (err) { next(err); }
 });

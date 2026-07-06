@@ -121,9 +121,9 @@ export async function generateMonthlySchedule(
   // ── Load manager-defined staffing requirements (how many of each cert per
   //    shift slot). Missing entries default to 1 — the original behavior. ──
   const reqRows = await prisma.staffingRequirement.findMany({ where: { facilityId } });
-  const reqMap = new Map(reqRows.map((r) => [`${r.shift}|${r.certification}`, r.count]));
-  const requiredCount = (shiftLabel: string, cert: Certification): number =>
-    reqMap.has(`${shiftLabel}|${cert}`) ? reqMap.get(`${shiftLabel}|${cert}`)! : 1;
+  const reqMap = new Map(reqRows.map((r) => [`${r.date.toISOString().slice(0, 10)}|${r.shift}|${r.certification}`, r.count]));
+  const requiredCount = (dateStr: string, shiftLabel: string, cert: Certification): number =>
+    reqMap.has(`${dateStr}|${shiftLabel}|${cert}`) ? reqMap.get(`${dateStr}|${shiftLabel}|${cert}`)! : 1;
 
   // ── 3. For each unit, build the schedule ────────────────────────────────
   for (const unit of units) {
@@ -153,7 +153,7 @@ export async function generateMonthlySchedule(
         const shiftEnd   = addHours(shiftStart, slot.durationH);
 
         for (const cert of REQUIRED_CERTS) {
-          const need = requiredCount(slot.label, cert); // manager-defined count (default 1)
+          const need = requiredCount(dayStr, slot.label, cert); // manager-defined count for this date (default 1)
           for (let n = 0; n < need; n++) {
           // ── Find the best ELIGIBLE staff member of this certification ────
           let bestId: string | null = null;

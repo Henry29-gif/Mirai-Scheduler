@@ -16,24 +16,39 @@ import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import jwt from "jsonwebtoken";
 import { logger } from "../utils/logger";
+import { prisma } from "../config/prisma";
+import { redisAuth } from "../config/redis";
+import { allowedOrigins } from "../utils/origins";
 
 let io: Server;
 
 export function initSocket(httpServer: HttpServer) {
   io = new Server(httpServer, {
-    cors: { origin: process.env.ALLOWED_ORIGINS?.split(",") || "*", credentials: true },
+    // Same allowlist as the Express API — never "*", even when the env var is unset.
+    cors: { origin: allowedOrigins(), credentials: true },
   });
 
-  io.use((socket: Socket, next) => {
+  io.use(async (socket: Socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("Unauthorized"));
+    let payload: any;
     try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET!) as any;
-      (socket as any).user = payload;
-      next();
+      payload = jwt.verify(token, process.env.JWT_SECRET!);
     } catch {
-      next(new Error("Invalid token"));
+      return next(new Error("Invalid token"));
     }
+    // Mirror the HTTP middleware's revocation checks (password reset stamp +
+    // deactivated account) so sockets can't outlive a killed session.
+    try {
+      const changedAt = await redisAuth.get(`pwchanged:${payload.sub}`);
+      if (changedAt && payload.iat < Number(changedAt)) return next(new Error("Session expired"));
+    } catch { /* Redis blip — isActive check below still applies */ }
+    try {
+      const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { isActive: true } });
+      if (!user || !user.isActive) return next(new Error("Unauthorized"));
+    } catch { /* DB blip — deny rather than allow */ return next(new Error("Unauthorized")); }
+    (socket as any).user = payload;
+    next();
   });
 
   io.on("connection", (socket: Socket) => {

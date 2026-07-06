@@ -11,6 +11,19 @@ async function api(path, { method = "GET", body, token } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  // A 401 on an authenticated call means the session is dead (expired, or
+  // revoked by a password reset) — return cleanly to the login screen instead
+  // of surfacing random errors. Login itself sends no token, so a wrong
+  // password still shows its message normally.
+  // Only if the rejected token is STILL the current session — a late 401 from
+  // a stale in-flight request must never wipe a freshly created session.
+  if (res.status === 401 && token && localStorage.getItem("ns_token") === token) {
+    localStorage.removeItem("ns_token");
+    localStorage.removeItem("ns_user");
+    localStorage.removeItem("ns_last_activity");
+    window.location.reload();
+    return new Promise(() => {}); // never resolves — page is reloading
+  }
   if (!res.ok) throw new Error(data.message || `Request failed (${res.status})`);
   return data;
 }
@@ -115,10 +128,10 @@ function Login({ onLogin, theme, onToggleTheme }) {
       <div className="login-theme"><ThemeToggle theme={theme} onToggle={onToggleTheme} /></div>
       <form className="card login-card" onSubmit={submit}>
         <div className="brand">
-          <span className="brand-mark">+</span>
-          <h1>NurseScheduler</h1>
+          <span className="brand-mark">M</span>
+          <h1>Mirai</h1>
         </div>
-        <p className="muted">{mode === "signin" ? "Sign in to manage shifts" : "Enter your email and we'll send a reset link"}</p>
+        <p className="muted">{mode === "signin" ? "Every shift, in sync" : "Enter your email and we'll send a reset link"}</p>
 
         <label>Email</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" autoFocus />
@@ -180,7 +193,7 @@ function ResetPassword({ token, theme, onToggleTheme }) {
     <div className="login-wrap">
       <div className="login-theme"><ThemeToggle theme={theme} onToggle={onToggleTheme} /></div>
       <form className="card login-card" onSubmit={submit}>
-        <div className="brand"><span className="brand-mark">+</span><h1>NurseScheduler</h1></div>
+        <div className="brand"><span className="brand-mark">M</span><h1>Mirai</h1></div>
         {done ? (<>
           <p className="muted">Password updated</p>
           <div className="note">Your password has been reset. You can now sign in.</div>
@@ -227,6 +240,7 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   const [notifs, setNotifs] = useState([]);
   const [unread, setUnread] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [notifActed, setNotifActed] = useState({}); // notifId -> result label after Accept/Decline
   // Sub-page navigation ("More" menu)
   const [view, setView] = useState("home");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -359,6 +373,23 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   async function loadNotifs() {
     try { const d = await api("/api/notifications", { token }); setNotifs(d.notifications || []); setUnread(d.unread || 0); } catch {}
   }
+  // Accept/Decline a request straight from the notification bell. `yes` = approve/accept.
+  async function actOnNotif(n, yes) {
+    const m = n.metadata || {};
+    let path, body;
+    if (m.kind === "TIMEOFF_REQUEST") { path = `/api/timeoff/${m.id}/respond`; body = { approve: yes }; }
+    else if (m.kind === "SWAP_REQUEST") { path = `/api/swaps/${m.id}/respond`; body = { accept: yes }; }
+    else return;
+    setNotifActed((s) => ({ ...s, [n.id]: "…" }));
+    try {
+      await api(path, { method: "POST", token, body });
+      setNotifActed((s) => ({ ...s, [n.id]: yes ? "Accepted ✓" : "Declined" }));
+    } catch (e) {
+      const already = /review|resolv|already/i.test(e.message || "");
+      setNotifActed((s) => ({ ...s, [n.id]: already ? "Already handled" : (e.message || "Couldn't update") }));
+    }
+    loadNotifs();
+  }
   async function openNotifs() {
     const opening = !showNotifs;
     setShowNotifs(opening);
@@ -394,7 +425,7 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   // ── Staffing needs (how many of each role per shift) ────────────────────
   async function loadStaffing() {
     if (!isManager) return;
-    try { setStaffing((await api(`/api/schedules/requirements${siteId ? `?facilityId=${siteId}` : ""}`, { token })).requirements || []); }
+    try { setStaffing((await api(`/api/schedules/requirements?month=${period.month}&year=${period.year}${siteId ? `&facilityId=${siteId}` : ""}`, { token })).requirements || []); }
     catch { setStaffing([]); }
   }
 
@@ -494,15 +525,25 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     if (days <= 30) return { label: `Expires in ${days}d`, cls: "rel-mid" };
     return { label: "Valid", cls: "rel-ok" };
   }
-  const staffingVal = (shift, cert) => {
-    const row = staffing.find((r) => r.shift === shift && r.certification === cert);
+  const staffingVal = (dateStr, shift, cert) => {
+    const row = staffing.find((r) => r.date === dateStr && r.shift === shift && r.certification === cert);
     return row ? row.count : 1;
   };
-  function setStaffingCell(shift, cert, value) {
+  function setStaffingCell(dateStr, shift, cert, value) {
     const count = Math.max(0, Math.min(20, Math.round(Number(value) || 0)));
     setStaffing((rows) => {
-      const others = rows.filter((r) => !(r.shift === shift && r.certification === cert));
-      return [...others, { shift, certification: cert, count }];
+      const others = rows.filter((r) => !(r.date === dateStr && r.shift === shift && r.certification === cert));
+      return [...others, { date: dateStr, shift, certification: cert, count }];
+    });
+  }
+  // Copy one date's 9 values to every date in the month (quick baseline).
+  function copyStaffingToAllDays(fromDateStr) {
+    setStaffing((rows) => {
+      const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"];
+      const at = (s, c) => { const r = rows.find((x) => x.date === fromDateStr && x.shift === s && x.certification === c); return r ? r.count : 1; };
+      const next = [];
+      for (const { dateStr } of scheduleDates) for (const s of SH) for (const c of CE) next.push({ date: dateStr, shift: s, certification: c, count: at(s, c) });
+      return next;
     });
   }
   async function saveStaffing() {
@@ -513,6 +554,7 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
         body: { ...(siteId ? { facilityId: siteId } : {}), requirements: staffing },
       });
       setStaffingMsg(r.message);
+      loadStaffing();
     } catch (e) { setStaffingMsg(e.message); }
     finally { setStaffingBusy(false); }
   }
@@ -792,6 +834,19 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   const pad2 = (n) => String(n).padStart(2, "0");
   const monthFirst = `${period.year}-${pad2(period.month)}-01`;
   const monthLast = `${period.year}-${pad2(period.month)}-${pad2(new Date(period.year, period.month, 0).getDate())}`;
+  // Every calendar date in the displayed month — drives the per-date staffing grid.
+  const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const scheduleDates = (() => {
+    const out = [];
+    const start = new Date(monthFirst + "T00:00:00");
+    const end = new Date(monthLast + "T00:00:00");
+    if (isNaN(+start) || isNaN(+end)) return out;
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+      out.push({ dateStr, label: `${WEEKDAY_ABBR[d.getDay()]} · ${d.toLocaleString(undefined, { month: "short" })} ${d.getDate()}` });
+    }
+    return out;
+  })();
 
   // Site + month toolbar — shown on Home and in the manager "Staffing needs and
   // schedule" view (so the manager can pick what to schedule).
@@ -817,33 +872,46 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   // Manager-only staffing-needs grid (lives in the "Staffing needs and schedule" view).
   const staffingCard = (
     <section className="card span2">
-      <div className="card-head">
+      <div className="card-head" style={{ marginBottom: 12 }}>
         <h2>Staffing needs <span className="muted" style={{ fontWeight: 400, fontSize: 14 }}>· {currentSite ? currentSite.name : "this site"}</span></h2>
-        <button className="btn-accept" onClick={saveStaffing} disabled={staffingBusy}>{staffingBusy ? "Saving…" : "Save needs"}</button>
       </div>
-      <p className="muted" style={{ marginTop: -6, marginBottom: 12, fontSize: 13 }}>
-        Set how many staff you need for each shift, then click <strong>Generate schedule</strong> below — it fills these automatically. Use <strong>0</strong> if a role isn't needed.
-      </p>
-      <table className="tbl staffing-grid">
-        <thead><tr><th>Shift</th><th>RN</th><th>LPN</th><th>CCA</th></tr></thead>
-        <tbody>
-          {["Day", "Evening", "Night"].map((shift) => (
-            <tr key={shift}>
-              <td className="staffing-shift">{shift}</td>
-              {["RN", "LPN", "CCA"].map((cert) => (
-                <td key={cert}>
-                  <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(shift, cert)} onChange={(e) => setStaffingCell(shift, cert, e.target.value)} aria-label={`${shift} ${cert} count`} />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="sched-dates">
+      <div className="sched-dates" style={{ marginTop: 0, paddingTop: 0, borderTop: "none", paddingBottom: 14, marginBottom: 14, borderBottom: "1px solid var(--border)" }}>
         <span className="muted">Schedule these dates:</span>
         <label>From <input type="date" min={monthFirst} max={monthLast} value={schedRange.start} onChange={(e) => setSchedRange((r) => ({ ...r, start: e.target.value }))} /></label>
         <label>To <input type="date" min={schedRange.start || monthFirst} max={monthLast} value={schedRange.end} onChange={(e) => setSchedRange((r) => ({ ...r, end: e.target.value }))} /></label>
         <span className="muted" style={{ fontSize: 12 }}>(defaults to the whole month)</span>
+      </div>
+      <p className="muted" style={{ marginTop: -6, marginBottom: 12, fontSize: 13 }}>
+        Set how many staff you need for each shift <strong>on each date</strong>, then click <strong>Generate schedule</strong> — it fills these automatically. Use <strong>0</strong> if a role isn't needed, or <strong>Copy to all days</strong> to apply the first date to the whole month.
+      </p>
+      <table className="tbl staffing-grid">
+        <thead><tr><th>Shift</th><th>RN</th><th>LPN</th><th>CCA</th></tr></thead>
+        <tbody>
+          {scheduleDates.map(({ dateStr, label }, i) => (
+            <React.Fragment key={dateStr}>
+              <tr className="staffing-day-row">
+                <td className="staffing-day" colSpan={4}>
+                  {label}
+                  {i === 0 && <button type="button" className="btn-ghost sm staffing-copy" onClick={() => copyStaffingToAllDays(dateStr)}>Copy to all days</button>}
+                </td>
+              </tr>
+              {["Day", "Evening", "Night"].map((shift) => (
+                <tr key={shift}>
+                  <td className="staffing-shift">{shift}</td>
+                  {["RN", "LPN", "CCA"].map((cert) => (
+                    <td key={cert}>
+                      <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(dateStr, shift, cert)} onChange={(e) => setStaffingCell(dateStr, shift, cert, e.target.value)} aria-label={`${label} ${shift} ${cert} count`} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+        <button className="btn-ghost" style={{ width: "auto", marginTop: 0 }} onClick={saveStaffing} disabled={staffingBusy}>{staffingBusy ? "Saving…" : "Save needs"}</button>
+        <button className="btn" style={{ width: "auto", marginTop: 0 }} onClick={generate} disabled={busy}>{busy ? "Generating…" : "Generate schedule"}</button>
       </div>
       {staffingMsg && <div className="note">{staffingMsg}</div>}
     </section>
@@ -895,12 +963,9 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
             </span>
           )}
         </h2>
-        {isManager && (
+        {isManager && schedulePeriod && schedulePeriod.status !== "PUBLISHED" && (
           <div className="sched-actions">
-            <button className="btn" onClick={generate} disabled={busy}>{busy ? "Generating…" : "Generate schedule"}</button>
-            {schedulePeriod && schedulePeriod.status !== "PUBLISHED" && (
-              <button className="btn-accept" onClick={postSchedule}>Post schedule</button>
-            )}
+            <button className="btn-accept" onClick={postSchedule}>Post schedule</button>
           </div>
         )}
       </div>
@@ -1119,8 +1184,8 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">+</span>
-          <strong>NurseScheduler</strong>
+          <span className="brand-mark">M</span>
+          <strong>Mirai</strong>
           {me?.facility && <span className="facility">· {me.facility.name}</span>}
         </div>
         <div className="user-chip">
@@ -1140,6 +1205,14 @@ function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
                       <div className="notif-title">{n.title}</div>
                       <div className="notif-body">{n.body}</div>
                       <div className="notif-time">{new Date(n.createdAt).toLocaleString()}</div>
+                      {(n.metadata?.kind === "TIMEOFF_REQUEST" || n.metadata?.kind === "SWAP_REQUEST") && (
+                        notifActed[n.id]
+                          ? <div className="notif-acted">{notifActed[n.id]}</div>
+                          : <div className="notif-actions">
+                              <button className="notif-accept" onClick={() => actOnNotif(n, true)}>Accept</button>
+                              <button className="notif-decline" onClick={() => actOnNotif(n, false)}>Decline</button>
+                            </div>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -50,12 +50,18 @@ router.patch("/:id", async (req: AuthRequest, res, next) => {
     if (!existing || existing.userId !== req.user!.id) return res.status(404).json({ message: "Certification not found" });
     const { name, number, expiryDate } = (req.body || {}) as { name?: string; number?: string; expiryDate?: string };
     if (expiryDate && isNaN(+new Date(expiryDate))) return res.status(400).json({ message: "Invalid expiry date" });
+    // A changed expiry date re-arms the expiry alerts (alertStage 0) so the
+    // daily sweep evaluates the new date fresh — including renewals that land
+    // inside a warning window, and dates that were cleared entirely.
+    const newExpiry = expiryDate !== undefined ? (expiryDate ? new Date(expiryDate) : null) : undefined;
+    const expiryChanged = newExpiry !== undefined && +(newExpiry ?? new Date(0)) !== +(existing.expiryDate ?? new Date(0));
     await prisma.staffCertification.update({
       where: { id: existing.id },
       data: {
         ...(name !== undefined ? { name: name.trim() } : {}),
         ...(number !== undefined ? { number: number?.trim() || null } : {}),
-        ...(expiryDate !== undefined ? { expiryDate: expiryDate ? new Date(expiryDate) : null } : {}),
+        ...(newExpiry !== undefined ? { expiryDate: newExpiry } : {}),
+        ...(expiryChanged ? { alertStage: 0 } : {}),
       },
     });
     res.json({ message: "Certification updated ✓" });

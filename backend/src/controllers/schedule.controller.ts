@@ -219,33 +219,43 @@ export async function getScheduleForMonth(req: AuthRequest, res: Response, next:
 const REQ_SHIFTS = ["Day", "Evening", "Night"];
 const REQ_CERTS = ["RN", "LPN", "CCA"];
 
-// GET /api/schedules/requirements — the full 3×3 grid, defaulting missing cells to 1.
+// GET /api/schedules/requirements?month&year — the saved per-date counts for the
+// month. The client fills any missing date/shift/cert with the default of 1.
 export async function getStaffingRequirements(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const facilityId = await resolveScopedFacility(req, req.query.facilityId as string | undefined);
-    const rows = await prisma.staffingRequirement.findMany({ where: { facilityId } });
-    const map = new Map(rows.map((r) => [`${r.shift}|${r.certification}`, r.count]));
-    const requirements = [];
-    for (const shift of REQ_SHIFTS)
-      for (const certification of REQ_CERTS)
-        requirements.push({ shift, certification, count: map.has(`${shift}|${certification}`) ? map.get(`${shift}|${certification}`) : 1 });
+    const month = Number(req.query.month), year = Number(req.query.year);
+    const where: any = { facilityId };
+    if (month >= 1 && month <= 12 && year) {
+      where.date = { gte: new Date(Date.UTC(year, month - 1, 1)), lt: new Date(Date.UTC(year, month, 1)) };
+    }
+    const rows = await prisma.staffingRequirement.findMany({ where });
+    const requirements = rows.map((r) => ({
+      date: r.date.toISOString().slice(0, 10),
+      shift: r.shift,
+      certification: r.certification,
+      count: r.count,
+    }));
     res.json({ facilityId, requirements });
   } catch (err) { next(err); }
 }
 
-// PUT /api/schedules/requirements { facilityId?, requirements:[{shift,certification,count}] }
+// PUT /api/schedules/requirements { facilityId?, requirements:[{date,shift,certification,count}] }
 export async function saveStaffingRequirements(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const facilityId = await resolveScopedFacility(req, req.body?.facilityId as string | undefined);
     const items = Array.isArray(req.body?.requirements) ? req.body.requirements : [];
     const ops = [];
     for (const it of items) {
+      const dateStr = String(it?.date || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) continue;
       if (!REQ_SHIFTS.includes(it?.shift) || !REQ_CERTS.includes(it?.certification)) continue;
+      const date = new Date(dateStr + "T00:00:00.000Z");
       const count = Math.max(0, Math.min(20, Math.round(Number(it.count) || 0))); // clamp 0–20
       ops.push(prisma.staffingRequirement.upsert({
-        where: { facilityId_shift_certification: { facilityId, shift: it.shift, certification: it.certification } },
+        where: { facilityId_date_shift_certification: { facilityId, date, shift: it.shift, certification: it.certification } },
         update: { count },
-        create: { facilityId, shift: it.shift, certification: it.certification, count },
+        create: { facilityId, date, shift: it.shift, certification: it.certification, count },
       }));
     }
     if (ops.length) await prisma.$transaction(ops);

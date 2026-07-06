@@ -3,8 +3,8 @@ import path from "path";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
+import { allowedOrigins } from "./utils/origins";
 
 import authRoutes from "./routes/auth.routes";
 import shiftRoutes from "./routes/shift.routes";
@@ -27,10 +27,15 @@ import { errorHandler } from "./middleware/error.middleware";
 
 const app = express();
 
+// Behind Render's proxy there is exactly one hop; without this, express-rate-limit
+// keys every client to the proxy IP (one shared bucket → everyone locked out
+// together) and logs X-Forwarded-For validation errors. Harmless in local dev.
+app.set("trust proxy", 1);
+
 // ── Security ──────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:3000"],
+  origin: allowedOrigins(),
   credentials: true,
 }));
 
@@ -48,8 +53,8 @@ app.use("/api", rateLimit({
 
 // ── Middleware ────────────────────────────────────────────────────────────
 app.use(morgan("dev"));
-app.use(express.json({ limit: "10kb" }));
-app.use(cookieParser());
+app.use(express.json({ limit: "100kb" })); // headroom for the per-date staffing grid (a month of dates × shifts × certs)
+// (No cookies anywhere in this API — auth is pure Bearer-header JWT.)
 
 // ── Health check ──────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => res.json({ status: "ok", ts: new Date().toISOString() }));

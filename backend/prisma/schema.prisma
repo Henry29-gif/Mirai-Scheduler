@@ -166,12 +166,13 @@ model User {
 model StaffingRequirement {
   id            String        @id @default(cuid())
   facilityId    String
+  date          DateTime      @db.Date // the specific calendar date these counts apply to
   shift         String        // "Day" | "Evening" | "Night"
   certification Certification // RN | LPN | CCA
   count         Int           @default(1)
   updatedAt     DateTime      @updatedAt
 
-  @@unique([facilityId, shift, certification])
+  @@unique([facilityId, date, shift, certification])
   @@index([facilityId])
 }
 
@@ -343,6 +344,7 @@ model StaffCertification {
   name       String
   number     String?
   expiryDate DateTime?
+  alertStage Int       @default(0) // last expiry alert sent: 0=none, 1=30-day, 2=7-day, 3=expired (re-armed when the date is renewed)
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

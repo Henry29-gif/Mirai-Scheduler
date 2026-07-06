@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, AuthRequest } from "../middleware/auth.middleware";
 import { prisma } from "../config/prisma";
+import { redisAuth as redis } from "../config/redis";
 import { logAudit } from "../services/audit.service";
 import { notifyMany } from "../services/notify.service";
 
@@ -28,19 +29,19 @@ router.post("/delete", async (req: AuthRequest, res, next) => {
       select: { id: true },
     });
 
-    await prisma.$transaction([
-      prisma.refreshToken.deleteMany({ where: { userId: me.id } }),
-      prisma.user.update({
-        where: { id: me.id },
-        data: {
-          firstName: "Deleted",
-          lastName: "User",
-          email: `deleted+${me.id}@deleted.invalid`,
-          phone: null,
-          isActive: false,
-        },
-      }),
-    ]);
+    await prisma.user.update({
+      where: { id: me.id },
+      data: {
+        firstName: "Deleted",
+        lastName: "User",
+        email: `deleted+${me.id}@deleted.invalid`,
+        phone: null,
+        isActive: false,
+      },
+    });
+    // Kill any live sessions immediately (the auth middleware also rejects
+    // deactivated accounts on their next request — this is belt and braces).
+    try { await redis.set(`pwchanged:${me.id}`, Math.floor(Date.now() / 1000), "EX", 8 * 3600 + 300); } catch { /* best-effort */ }
 
     await logAudit({
       facilityId: me.facilityId, actorId: me.id, action: "ACCOUNT_DELETED",

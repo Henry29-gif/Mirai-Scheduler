@@ -2,7 +2,7 @@ import { Router } from "express";
 import { authenticate, requireRole, AuthRequest } from "../middleware/auth.middleware";
 import { prisma } from "../config/prisma";
 import { logAudit, facilityOfShift } from "../services/audit.service";
-import { notify } from "../services/notify.service";
+import { notify, notifySupervisors } from "../services/notify.service";
 import { resolveScopedFacility, assertFacilityInScope } from "../utils/tenant";
 import { checkRest } from "../utils/rest";
 
@@ -185,6 +185,22 @@ router.post("/:id/release", async (req: AuthRequest, res, next) => {
       entityType: "Shift", entityId: shift.id,
     });
 
+    // Alert the staff member's supervisors (managers + org admins) so they can
+    // arrange cover — appears in their notification bell on web and mobile.
+    if (releasedBy) {
+      const who = await prisma.user.findUnique({ where: { id: releasedBy }, select: { firstName: true, lastName: true } });
+      const name = who ? `${who.firstName} ${who.lastName}` : "A staff member";
+      await notifySupervisors(
+        releasedBy,
+        openReason === "SICK" ? "Staff called in sick" : "Shift dropped to open board",
+        openReason === "SICK"
+          ? `${name} called in sick for a ${fmtShift(shift)}. It's now open for pickup.`
+          : `${name} dropped a ${fmtShift(shift)} to the open board.`,
+        openReason === "SICK" ? "warning" : "info",
+        [req.user!.id],
+      );
+    }
+
     res.json({
       message: openReason === "SICK"
         ? "Called in sick — shift posted for replacement."
@@ -220,6 +236,15 @@ router.post("/:id/accept", async (req: AuthRequest, res, next) => {
       summary: `Accepted an open ${fmtShift(result.shift!)}`,
       entityType: "Shift", entityId: req.params.id,
     });
+    // Let supervisors know an open shift was filled (notification bell, web + mobile).
+    const acceptor = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { firstName: true, lastName: true } });
+    await notifySupervisors(
+      req.user!.id,
+      "Open shift picked up",
+      `${acceptor?.firstName} ${acceptor?.lastName} accepted an open ${fmtShift(result.shift!)}.`,
+      "success",
+      [req.user!.id],
+    );
     res.json({ message: "Shift accepted ✓", shift: result.shift });
   } catch (err) { next(err); }
 });

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import crypto from "crypto";
 import { prisma } from "../config/prisma";
-import { redis } from "../config/redis";
+import { redisAuth as redis } from "../config/redis"; // fast-failing client — reset flow should 500 quickly, not hang, if Redis is down
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { sendPasswordResetEmail } from "../services/email.service";
@@ -64,7 +64,8 @@ router.post("/forgot-password", async (req, res, next) => {
 
 // POST /api/auth/reset-password { token, password }
 // Validates the single-use token, sets the new password, burns the token, and
-// invalidates existing refresh-token sessions.
+// kills every existing session (tokens issued before this moment are rejected
+// by the auth middleware via the pwchanged stamp).
 router.post("/reset-password", async (req, res, next) => {
   try {
     const { token, password } = (req.body ?? {}) as { token?: string; password?: string };
@@ -82,10 +83,10 @@ router.post("/reset-password", async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    await prisma.$transaction([
-      prisma.user.update({ where: { id: user.id }, data: { passwordHash } }),
-      prisma.refreshToken.deleteMany({ where: { userId: user.id } }), // sign out other sessions
-    ]);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    // Sign out every session: the auth middleware rejects any JWT whose iat
+    // (seconds) predates this stamp. TTL comfortably outlives the 8h tokens.
+    await redis.set(`pwchanged:${user.id}`, Math.floor(Date.now() / 1000), "EX", 8 * 3600 + 300);
     await redis.del(key); // single use
 
     await logAudit({

@@ -40,7 +40,7 @@ services:
       - key: APP_WEB_URL
         sync: false                        # e.g. https://app.yourdomain.com  (used in reset-password emails)
       - key: RESEND_API_KEY
-        sync: false                        # from resend.com — leave blank to keep emails in dev-log mode
+        sync: false                        # from resend.com — REQUIRED in production (password-reset emails refuse to run in log-mode there)
       - key: EMAIL_FROM
         sync: false                        # e.g. NurseScheduler <noreply@yourdomain.com>
       - key: SENTRY_DSN

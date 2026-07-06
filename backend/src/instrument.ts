@@ -11,5 +11,8 @@ if (process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || "development",
     tracesSampleRate: 0.1,
+    // Never attach request bodies to error events — login/reset payloads
+    // contain plaintext credentials. URL + headers remain for debugging.
+    integrations: [Sentry.requestDataIntegration({ include: { data: false } })],
   });
 }

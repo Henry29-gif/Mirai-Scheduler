@@ -15,6 +15,12 @@ export const emailIsLive = !!RESEND_API_KEY;
 
 export async function sendEmail(to: string, subject: string, html: string, text: string): Promise<void> {
   if (!RESEND_API_KEY) {
+    // In production, NEVER log message bodies (password-reset emails contain a
+    // live sign-in token) — fail loudly so the missing key gets configured.
+    if (process.env.NODE_ENV === "production") {
+      logger.error(`Email NOT sent (RESEND_API_KEY is not configured): "${subject}"`);
+      throw new Error("Email is not configured");
+    }
     logger.info(`[email:dev] (no RESEND_API_KEY — not sent)\n  to: ${to}\n  subject: ${subject}\n  ${text.replace(/\n/g, "\n  ")}`);
     return;
   }
