@@ -72,7 +72,7 @@ Organization, Facility, Unit, UnitStaffAssignment, User (role, `certification` e
 ## Known Issues
 - **WSL↔Windows networking**: `localhost` forwarding dead → backend uses WSL IP. After a cold boot the link "warms up" over a few minutes (first DB calls 500, then stabilize). Do NOT `wsl --shutdown` to fix it (resets the warm-up). WSL IP can change on reboot → update `backend/.env` (`wsl hostname -I`).
 - `prisma generate` fails with **EPERM** while the backend tsx-watch runs → stop backend first.
-- No automated tests beyond `isolation.test.ts`; verification is manual (web preview / Metro bundle compile / curl).
+- Frontend verification is still manual (web preview / Metro bundle compile); the backend has a real test suite (see `npm test` below).
 - Email (Resend) and SMS/push (Twilio/Expo) are stubbed / dev-mode. Dev servers don't survive reboot.
 
 ## Open Questions
@@ -88,6 +88,7 @@ Organization, Facility, Unit, UnitStaffAssignment, User (role, `certification` e
 - **Fire-up after reboot**: (1) start WSL: `wsl -d Ubuntu -e bash -lc "docker ps"` (ns-postgres/ns-redis auto-start); (2) confirm `backend/.env` DB/Redis host = current WSL IP; (3) `cd backend && npm run dev`, `cd web && npm run dev`, `cd mobile-app && npx expo start --lan`; (4) wait a few minutes + retry login while the DB link warms.
 - **Demo logins** (password `Password123!`): `admin@demo.com` (Tenant A, 3 sites), `manager@sunrise.demo`, `nurse@demo.com` (RN; seeded certs + a cert doc), `admin@northstar.demo` (Tenant B). Web `http://localhost:5173` · Mobile `exp://192.168.1.109:8081` (Expo Go, same Wi-Fi).
 - **Scripts**: `npm run db:seed` (wipes + reseeds 2 orgs/sites/staff); `npx tsx src/scripts/seed-clockins.ts` (clock history so metrics populate — re-run after reseed); `npx tsx src/scripts/isolation.test.ts` (tenant isolation, 8/8).
+- **Test suite (added 2026-07-06, 38 checks, ~5s)**: `npm test` in `backend/` = `test:unit` + `test:api`. Uses Node's built-in test runner via `node --import tsx --test` (zero new deps). `src/tests/rest.test.ts` (18 unit tests of `checkRest` — overlap/8h-rest/double-ok/triple-blocked/block-boundary; no server needed). `src/tests/rules.api.test.ts` (12 tests vs the LIVE API on :4000 — backend must be running): pay visibility (hourlyRate/shiftCost admin-only incl. candidates + timesheet 403s), role guards (generate/workload/roster), staff-sees-only-own-PUBLISHED scoping, and an end-to-end scheduler check that generates a real draft ~5 months out on **Tenant B** then re-validates every shift (cert match, checkRest per staffer, unfilled→OPEN/UNFILLED, fairness spread ≤2 per cert). That Tenant-B future draft is wiped/regenerated each run — harmless, invisible to staff. `test:api` also chains the isolation test. Gotcha: /api/auth rate-limit = 20 logins/15min; the suite uses 5 — many rapid re-runs can trip it.
 - Backend deps: multer, pdf-lib. Mobile deps: expo-document-picker, expo-file-system, expo-sharing (all in Expo Go runtime — no custom build needed).
 - Legal pages served by backend: `/privacy`, `/terms`, `/delete-account` (templates — fill `[BRACKETS]`).
 - `mobile-app/AGENTS.md`: verify versioned Expo docs before writing Expo code (installed SDK = 54).

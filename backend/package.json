@@ -9,7 +9,10 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "tsx src/config/seed.ts",
-    "setup:admin": "tsx src/scripts/createFirstAdmin.ts"
+    "setup:admin": "tsx src/scripts/createFirstAdmin.ts",
+    "test": "npm run test:unit && npm run test:api",
+    "test:unit": "node --import tsx --test src/tests/rest.test.ts",
+    "test:api": "node --import tsx --test src/tests/rules.api.test.ts && tsx src/scripts/isolation.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.11.0",
