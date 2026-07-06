@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "./api";
-import { MONTH_NAMES, WEEKDAY_ABBR } from "./format";
+import { MONTH_NAMES, WEEKDAY_FULL } from "./format";
 import { RoleBadge, ThemeToggle } from "./ui";
 import { NotifBell } from "./components/NotifBell";
 import { HomeView } from "./screens/HomeView";
@@ -644,7 +644,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     if (isNaN(+start) || isNaN(+end)) return out;
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-      out.push({ dateStr, label: `${WEEKDAY_ABBR[d.getDay()]} · ${d.toLocaleString(undefined, { month: "short" })} ${d.getDate()}` });
+      out.push({ dateStr, label: `${WEEKDAY_FULL[d.getDay()]} · ${d.toLocaleString(undefined, { month: "short" })} ${d.getDate()}` });
     }
     return out;
   })();

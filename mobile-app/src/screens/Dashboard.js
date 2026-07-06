@@ -113,7 +113,7 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     return { label: "Valid", color: C.success };
   };
   const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const WEEKDAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   // Every calendar date in the current month — drives the per-date staffing grid.
   const scheduleDates = (() => {
     const pad = (x) => String(x).padStart(2, "0");
@@ -121,7 +121,7 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     const out = [];
     for (let day = 1; day <= last; day++) {
       const d = new Date(year, month - 1, day);
-      out.push({ dateStr: `${year}-${pad(month)}-${pad(day)}`, label: `${WEEKDAY_ABBR[d.getDay()]} · ${MONTHS_SHORT[month - 1]} ${day}` });
+      out.push({ dateStr: `${year}-${pad(month)}-${pad(day)}`, label: `${WEEKDAY_FULL[d.getDay()]} · ${MONTHS_SHORT[month - 1]} ${day}` });
     }
     return out;
   })();

@@ -231,8 +231,8 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
 .staffing-grid th { text-align: center; }
 .staffing-grid th:first-child { text-align: left; }
 .staffing-grid td { text-align: center; }
-.staffing-grid td.staffing-day { text-align: left; font-weight: 600; color: var(--text); font-size: 13px; padding-top: 14px; padding-bottom: 4px; border-top: 1px solid var(--border); }
-.staffing-day-row:first-child td.staffing-day { border-top: none; padding-top: 2px; }
+.staffing-grid td.staffing-day { text-align: left; font-weight: 700; color: var(--text); font-size: 13.5px; background: var(--accent-soft); padding: 9px 12px; border-top: 8px solid transparent; }
+.staffing-day-row:first-child td.staffing-day { border-top: none; }
 .staffing-copy { margin-left: 12px; font-weight: 500; }
 .staffing-shift { font-weight: 500; text-align: left !important; }
 .staffing-input { width: 64px; padding: 8px; text-align: center; font-size: 15px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }

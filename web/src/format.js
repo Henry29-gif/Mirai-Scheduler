@@ -9,4 +9,4 @@ export const fmtDateTime = (d) => new Date(d).toLocaleString([], { weekday: "sho
 export const fmtTime = (d) => new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-export const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const WEEKDAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
