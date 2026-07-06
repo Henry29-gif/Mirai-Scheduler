@@ -8,7 +8,7 @@ import { Toolbar } from "../components/Toolbar";
 export function SchedulingView({ ctx }) {
   const {
     currentSite, monthFirst, monthLast, schedRange, setSchedRange, scheduleDates,
-    copyStaffingToAllDays, staffingVal, setStaffingCell, saveStaffing, staffingBusy,
+    copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, saveStaffing, staffingBusy,
     staffingMsg, generate, busy, workload, schedule, period, monthName, schedulePeriod,
     calView, setCalView, calWeek, setCalWeek, dragId, setDragId, dropId, setDropId,
     onChipDragStart, onChipDrop, postSchedule, scheduleMsg,
@@ -27,33 +27,36 @@ export function SchedulingView({ ctx }) {
         <span className="muted" style={{ fontSize: 12 }}>(defaults to the whole month)</span>
       </div>
       <p className="muted" style={{ marginTop: -6, marginBottom: 12, fontSize: 13 }}>
-        Set how many staff you need for each shift <strong>on each date</strong>, then click <strong>Generate schedule</strong> — it fills these automatically. Use <strong>0</strong> if a role isn't needed, or <strong>Copy to all days</strong> to apply the first date to the whole month.
+        Set how many staff you need for each shift <strong>on each date</strong>, then click <strong>Generate schedule</strong> — it fills these automatically. Use <strong>Set day to 0</strong> when no staff are needed that day, or <strong>Copy to all days</strong> to apply the first date to the whole month.
       </p>
-      <table className="tbl staffing-grid">
-        <thead><tr><th>Shift</th><th>RN</th><th>LPN</th><th>CCA</th></tr></thead>
-        <tbody>
-          {scheduleDates.map(({ dateStr, label }, i) => (
-            <React.Fragment key={dateStr}>
-              <tr className="staffing-day-row">
-                <td className="staffing-day" colSpan={4}>
-                  {label}
-                  {i === 0 && <button type="button" className="btn-ghost sm staffing-copy" onClick={() => copyStaffingToAllDays(dateStr)}>Copy to all days</button>}
-                </td>
-              </tr>
-              {["Day", "Evening", "Night"].map((shift) => (
-                <tr key={shift}>
-                  <td className="staffing-shift">{shift}</td>
-                  {["RN", "LPN", "CCA"].map((cert) => (
-                    <td key={cert}>
-                      <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(dateStr, shift, cert)} onChange={(e) => setStaffingCell(dateStr, shift, cert, e.target.value)} aria-label={`${label} ${shift} ${cert} count`} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </React.Fragment>
-          ))}
-        </tbody>
-      </table>
+      <div className="staffing-days-grid">
+        {scheduleDates.map(({ dateStr, label }, i) => (
+          <div className="staffing-day-box" key={dateStr}>
+            <div className="staffing-day-head">
+              <span className="staffing-day-title">{label}</span>
+              <div className="staffing-day-actions">
+                {i === 0 && <button type="button" className="btn-ghost sm" onClick={() => copyStaffingToAllDays(dateStr)}>Copy to all days</button>}
+                <button type="button" className="btn-ghost sm" title="No staff needed this day" onClick={() => zeroDay(dateStr)}>Set day to 0</button>
+              </div>
+            </div>
+            <table className="tbl staffing-grid">
+              <thead><tr><th>Shift</th><th>RN</th><th>LPN</th><th>CCA</th></tr></thead>
+              <tbody>
+                {["Day", "Evening", "Night"].map((shift) => (
+                  <tr key={shift}>
+                    <td className="staffing-shift">{shift}</td>
+                    {["RN", "LPN", "CCA"].map((cert) => (
+                      <td key={cert}>
+                        <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(dateStr, shift, cert)} onChange={(e) => setStaffingCell(dateStr, shift, cert, e.target.value)} aria-label={`${label} ${shift} ${cert} count`} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
         <button className="btn-ghost" style={{ width: "auto", marginTop: 0 }} onClick={saveStaffing} disabled={staffingBusy}>{staffingBusy ? "Saving…" : "Save needs"}</button>
         <button className="btn" style={{ width: "auto", marginTop: 0 }} onClick={generate} disabled={busy}>{busy ? "Generating…" : "Generate schedule"}</button>

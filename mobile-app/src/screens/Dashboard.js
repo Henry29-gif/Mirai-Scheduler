@@ -128,6 +128,8 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
   const staffingVal = (dateStr, shift, cert) => { const r = staffing.find((x) => x.date === dateStr && x.shift === shift && x.certification === cert); return r ? String(r.count) : "1"; };
   const setStaffingCell = (dateStr, shift, cert, v) => { const count = Math.max(0, Math.min(20, parseInt(v, 10) || 0)); setStaffing((rows) => [...rows.filter((x) => !(x.date === dateStr && x.shift === shift && x.certification === cert)), { date: dateStr, shift, certification: cert, count }]); };
   const copyStaffingToAllDays = (fromDateStr) => setStaffing((rows) => { const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"]; const at = (s, c) => { const r = rows.find((x) => x.date === fromDateStr && x.shift === s && x.certification === c); return r ? r.count : 1; }; const out = []; for (const { dateStr } of scheduleDates) for (const s of SH) for (const c of CE) out.push({ date: dateStr, shift: s, certification: c, count: at(s, c) }); return out; });
+  // One-tap "no staff needed this day" — zero out all 9 cells of one date.
+  const zeroDay = (dateStr) => setStaffing((rows) => { const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"]; const out = rows.filter((x) => x.date !== dateStr); for (const s of SH) for (const c of CE) out.push({ date: dateStr, shift: s, certification: c, count: 0 }); return out; });
 
   // Guard against out-of-order responses: each load run remembers the
   // site+month it started for and only writes state if the user is still
@@ -414,7 +416,7 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     staffDocs, staffCerts, deleteDoc, uploadDocs,
     attendance,
     schedRange, schedPickerFor, setSchedPickerFor, onSchedPick, scheduleDates,
-    copyStaffingToAllDays, staffingVal, setStaffingCell, saveStaffing, generateRange,
+    copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, saveStaffing, generateRange,
     workload, postSchedule, openReassign, reassignFor, reassignCands, doReassign,
     facTimecards, tcSel, setTcSel, reopenDay, approveDay, setFixingDay, fixingDay, onFixTime,
     deleteAccount, generate,

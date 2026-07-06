@@ -10,7 +10,7 @@ import { fmtT, fmtD, fmtDay } from "../format";
 export function SchedulingView({ ctx }) {
   const {
     siteSwitcher, currentSiteName, monthNav, monthName, schedRange, schedPickerFor,
-    setSchedPickerFor, onSchedPick, scheduleDates, copyStaffingToAllDays, staffingVal,
+    setSchedPickerFor, onSchedPick, scheduleDates, copyStaffingToAllDays, zeroDay, staffingVal,
     setStaffingCell, saveStaffing, generateRange, busy, msg, workload, postSchedule,
     shifts, openReassign, reassignFor, reassignCands, doReassign, callSick, drop,
   } = ctx;
@@ -27,25 +27,30 @@ export function SchedulingView({ ctx }) {
       {schedPickerFor && (
         <DateTimePicker value={new Date((schedPickerFor === "start" ? schedRange.start : schedRange.end) + "T00:00:00")} mode="date" onChange={onSchedPick} />
       )}
-      <Text style={[styles.muted, { marginTop: 12, marginBottom: 8 }]}>How many of each role per shift, per date. 0 = none. Use "Copy to all days" to fill the month, then Save &amp; Generate.</Text>
-      <View style={styles.gridRow}>
-        <Text style={styles.gridLabel}></Text>
-        {["RN", "LPN", "CCA"].map((c) => <Text key={c} style={styles.gridHeadCell}>{c}</Text>)}
-      </View>
+      <Text style={[styles.muted, { marginTop: 12, marginBottom: 8 }]}>How many of each role per shift, per date. Tap "Set to 0" when no staff are needed that day, or "Copy to all days" to fill the month, then Save &amp; Generate.</Text>
       {scheduleDates.map(({ dateStr, label }, i) => (
-        <View key={dateStr}>
+        <View key={dateStr} style={styles.staffDayBox}>
           <View style={styles.staffDayRow}>
             <Text style={styles.staffDayLabel}>{label}</Text>
-            {i === 0 ? <TouchableOpacity onPress={() => copyStaffingToAllDays(dateStr)}><Text style={styles.linkTrade}>Copy to all days</Text></TouchableOpacity> : null}
-          </View>
-          {["Day", "Evening", "Night"].map((shift) => (
-            <View key={shift} style={styles.gridRow}>
-              <Text style={styles.gridLabel}>{shift}</Text>
-              {["RN", "LPN", "CCA"].map((cert) => (
-                <TextInput key={cert} style={styles.gridInput} keyboardType="number-pad" value={staffingVal(dateStr, shift, cert)} onChangeText={(v) => setStaffingCell(dateStr, shift, cert, v)} />
-              ))}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+              {i === 0 ? <TouchableOpacity onPress={() => copyStaffingToAllDays(dateStr)}><Text style={styles.linkTrade}>Copy to all days</Text></TouchableOpacity> : null}
+              <TouchableOpacity onPress={() => zeroDay(dateStr)}><Text style={styles.linkDrop}>Set to 0</Text></TouchableOpacity>
             </View>
-          ))}
+          </View>
+          <View style={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 }}>
+            <View style={styles.gridRow}>
+              <Text style={styles.gridLabel}></Text>
+              {["RN", "LPN", "CCA"].map((c) => <Text key={c} style={styles.gridHeadCell}>{c}</Text>)}
+            </View>
+            {["Day", "Evening", "Night"].map((shift) => (
+              <View key={shift} style={styles.gridRow}>
+                <Text style={styles.gridLabel}>{shift}</Text>
+                {["RN", "LPN", "CCA"].map((cert) => (
+                  <TextInput key={cert} style={styles.gridInput} keyboardType="number-pad" value={staffingVal(dateStr, shift, cert)} onChangeText={(v) => setStaffingCell(dateStr, shift, cert, v)} />
+                ))}
+              </View>
+            ))}
+          </View>
         </View>
       ))}
       <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>

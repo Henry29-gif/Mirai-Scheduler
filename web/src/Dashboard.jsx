@@ -338,6 +338,16 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
       return [...others, { date: dateStr, shift, certification: cert, count }];
     });
   }
+  // One-tap "no staff needed this day" — zero out all 9 cells of one date.
+  function zeroDay(dateStr) {
+    setStaffing((rows) => {
+      const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"];
+      const others = rows.filter((r) => r.date !== dateStr);
+      const zeros = [];
+      for (const s of SH) for (const c of CE) zeros.push({ date: dateStr, shift: s, certification: c, count: 0 });
+      return [...others, ...zeros];
+    });
+  }
   // Copy one date's 9 values to every date in the month (quick baseline).
   function copyStaffingToAllDays(fromDateStr) {
     setStaffing((rows) => {
@@ -662,7 +672,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     clock, toggleClock, timecard,
     attendance, loadAttendance, facTimecards, tcMsg, setTcMsg,
     approveDay, reopenDay, fixFor, setFixFor, fixTime, setFixTime, correctPunch,
-    staffingVal, setStaffingCell, copyStaffingToAllDays, saveStaffing, staffingBusy, staffingMsg,
+    staffingVal, setStaffingCell, copyStaffingToAllDays, zeroDay, saveStaffing, staffingBusy, staffingMsg,
     schedRange, setSchedRange,
     workload, reassignFor, reassignCands, reassignMsg, openReassign, doReassign,
     calView, setCalView, calWeek, setCalWeek,
