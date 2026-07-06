@@ -221,7 +221,7 @@ const REQ_SHIFTS = ["Day", "Evening", "Night"];
 const REQ_CERTS = ["RN", "LPN", "CCA"];
 
 // GET /api/schedules/requirements?month&year — the saved per-date counts for the
-// month. The client fills any missing date/shift/cert with the default of 1.
+// month. The client fills any missing date/shift/cert with the default of 0.
 async function getStaffingRequirements(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const facilityId = await resolveScopedFacility(req, req.query.facilityId as string | undefined);

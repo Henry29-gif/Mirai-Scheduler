@@ -329,7 +329,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   }
   const staffingVal = (dateStr, shift, cert) => {
     const row = staffing.find((r) => r.date === dateStr && r.shift === shift && r.certification === cert);
-    return row ? row.count : 1;
+    return row ? row.count : 0; // unset cells default to 0 — managers add what they need
   };
   function setStaffingCell(dateStr, shift, cert, value) {
     const count = Math.max(0, Math.min(20, Math.round(Number(value) || 0)));
@@ -352,7 +352,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   function copyStaffingToAllDays(fromDateStr) {
     setStaffing((rows) => {
       const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"];
-      const at = (s, c) => { const r = rows.find((x) => x.date === fromDateStr && x.shift === s && x.certification === c); return r ? r.count : 1; };
+      const at = (s, c) => { const r = rows.find((x) => x.date === fromDateStr && x.shift === s && x.certification === c); return r ? r.count : 0; };
       const next = [];
       for (const { dateStr } of scheduleDates) for (const s of SH) for (const c of CE) next.push({ date: dateStr, shift: s, certification: c, count: at(s, c) });
       return next;

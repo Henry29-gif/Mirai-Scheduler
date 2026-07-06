@@ -145,6 +145,19 @@ test("scheduler: generated month honors certs, rest rule, and OPEN fallback", as
   const fac = (await get("/api/facilities", adminB)).body.facilities?.[0];
   assert.ok(fac, "Tenant B facility should exist");
 
+  // Unset staffing counts default to 0 (nothing scheduled), so define the
+  // month's needs first: 1 of each role per shift — except day 1, explicitly
+  // zeroed, which must therefore produce NO shifts at all.
+  const SH = ["Day", "Evening", "Night"], CE = ["RN", "LPN", "CCA"];
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const reqs: { date: string; shift: string; certification: string; count: number }[] = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    for (const s of SH) for (const c of CE) reqs.push({ date, shift: s, certification: c, count: day === 1 ? 0 : 1 });
+  }
+  const put = await post("/api/schedules/requirements", adminB, { facilityId: fac.id, requirements: reqs }, "PUT");
+  assert.equal(put.status, 200, `saving staffing needs failed: ${JSON.stringify(put.body)}`);
+
   const gen = await post("/api/schedules/generate", adminB, { month, year, facilityId: fac.id });
   assert.equal(gen.status, 201, `generate failed: ${JSON.stringify(gen.body)}`);
   assert.ok(gen.body.shiftsCreated > 0, "expected some shifts to be created");
@@ -152,6 +165,11 @@ test("scheduler: generated month honors certs, rest rule, and OPEN fallback", as
   const { body } = await get(`/api/schedules?month=${month}&year=${year}&facilityId=${fac.id}`, adminB);
   const shifts = body.shifts as any[];
   assert.ok(shifts.length > 0);
+
+  // The zeroed day must be completely empty — count 0 means nobody scheduled,
+  // not even an OPEN slot.
+  assert.ok(shifts.every((s) => new Date(s.startTime).getDate() !== 1),
+    "a day explicitly set to 0 must produce no shifts");
 
   const byStaff = new Map<string, Span[]>();
   for (const s of shifts) {
