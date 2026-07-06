@@ -51,6 +51,8 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   const [timecard, setTimecard] = useState(null);
   // Manager attendance + timecard approvals
   const [attendance, setAttendance] = useState({ onNow: [], totalStaff: 0 });
+  const [attAll, setAttAll] = useState(true);        // admin Live attendance defaults to "All homes"
+  const [attendanceAll, setAttendanceAll] = useState([]); // per-facility: [{facilityId, name, onNow, totalStaff}]
   const [facTimecards, setFacTimecards] = useState({ staff: [], rangeDays: 14 });
   const [tcMsg, setTcMsg] = useState("");
   const [fixFor, setFixFor] = useState(null);   // `${userId}|${date}` whose fix form is open
@@ -217,6 +219,17 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     if (!isManager) return;
     try { setAttendance(await api(`/api/clock/attendance${siteId ? `?facilityId=${siteId}` : ""}`, { token })); }
     catch { setAttendance({ onNow: [], totalStaff: 0 }); }
+  }
+  // Admin "All homes" view — one request per site, in parallel.
+  async function loadAttendanceAll() {
+    if (!isAdmin || !sites.length) return;
+    try {
+      const results = await Promise.all(sites.map(async (s) => {
+        const d = await api(`/api/clock/attendance?facilityId=${s.id}`, { token });
+        return { facilityId: s.id, name: s.name, onNow: d.onNow || [], totalStaff: d.totalStaff || 0 };
+      }));
+      setAttendanceAll(results);
+    } catch { setAttendanceAll([]); }
   }
   async function loadFacTimecards() {
     if (!isManager) return;
@@ -611,10 +624,11 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   // Keep the live attendance view fresh while it's open (poll every 20s).
   useEffect(() => {
     if (view !== "attendance" || !isManager) return;
-    loadAttendance();
-    const t = setInterval(loadAttendance, 20000);
+    const load = () => { if (isAdmin && attAll) loadAttendanceAll(); else loadAttendance(); };
+    load();
+    const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, [view, siteId]);
+  }, [view, siteId, attAll, sites.length]);
 
   async function generate() {
     if (schedulePeriod?.status === "PUBLISHED" &&
@@ -670,7 +684,8 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     notifs, unread, showNotifs, openNotifs, notifActed, actOnNotif,
     view, setView,
     clock, toggleClock, timecard,
-    attendance, loadAttendance, facTimecards, tcMsg, setTcMsg,
+    attendance, loadAttendance, attAll, setAttAll, attendanceAll, loadAttendanceAll,
+    facTimecards, tcMsg, setTcMsg,
     approveDay, reopenDay, fixFor, setFixFor, fixTime, setFixTime, correctPunch,
     staffingVal, setStaffingCell, copyStaffingToAllDays, zeroDay, saveStaffing, staffingBusy, staffingMsg,
     schedRange, setSchedRange,

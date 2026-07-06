@@ -51,6 +51,8 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
   const [roster, setRoster] = useState([]);
   const [staffSel, setStaffSel] = useState(null);      // expanded staff userId in My Staff
   const [attendance, setAttendance] = useState({ onNow: [], totalStaff: 0 });
+  const [attAll, setAttAll] = useState(true);        // admin Live attendance defaults to "All homes"
+  const [attendanceAll, setAttendanceAll] = useState([]); // per-facility: [{facilityId, name, onNow, totalStaff}]
   // Staffing & schedule (manager/admin)
   const [staffing, setStaffing] = useState([]);        // [{shift,certification,count}]
   const [schedRange, setSchedRange] = useState(() => { const n = new Date(), m = n.getMonth() + 1, y = n.getFullYear(), p = (x) => String(x).padStart(2, "0"); return { start: `${y}-${p(m)}-01`, end: `${y}-${p(m)}-${p(new Date(y, m, 0).getDate())}` }; });
@@ -205,6 +207,23 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     setShowNotifs(opening);
     if (opening && unread > 0) { try { await api("/api/notifications/read-all", { method: "POST", token }); setUnread(0); } catch {} }
   }
+
+  // Admin "All homes" attendance — one request per site, in parallel. Refreshed
+  // while the Live attendance view is open (and when sites finish loading).
+  async function loadAttendanceAll() {
+    if (!isAdmin || !sites.length) return;
+    try {
+      const results = await Promise.all(sites.map(async (s) => {
+        const d = await api(`/api/clock/attendance?facilityId=${s.id}`, { token });
+        return { facilityId: s.id, name: s.name, onNow: d.onNow || [], totalStaff: d.totalStaff || 0 };
+      }));
+      setAttendanceAll(results);
+    } catch { setAttendanceAll([]); }
+  }
+  useEffect(() => {
+    if (view !== "attendance" || !isAdmin || !attAll) return;
+    loadAttendanceAll();
+  }, [view, attAll, sites.length]);
 
   const isBlocked = (dow, shift) => availability.some((b) => b.dayOfWeek === dow && b.shift === shift);
   async function toggleAvail(dow, shift) {
@@ -414,7 +433,7 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     myDocs, downloadFile, deleteMyDoc, uploadMyDocs, docMsg, setDocMsg,
     roster, staffSel, setStaffSel, loadStaffDocs, loadStaffCerts, money, relColor,
     staffDocs, staffCerts, deleteDoc, uploadDocs,
-    attendance,
+    attendance, attAll, setAttAll, attendanceAll,
     schedRange, schedPickerFor, setSchedPickerFor, onSchedPick, scheduleDates,
     copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, saveStaffing, generateRange,
     workload, postSchedule, openReassign, reassignFor, reassignCands, doReassign,
