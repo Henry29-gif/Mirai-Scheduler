@@ -117,9 +117,7 @@ router.get("/:id/candidates", async (req: AuthRequest, res, next) => {
       x.weeklyHours - y.weeklyHours ||
       x._otCost - y._otCost
     );
-    candidates.forEach((c) => delete c._otCost); // internal sort key — never sent
-
-    res.json({ shift, candidates });
+    res.json({ shift, candidates: candidates.map(({ _otCost, ...c }) => c) }); // _otCost is an internal sort key — never sent
   } catch (err) { next(err); }
 });
 

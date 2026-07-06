@@ -20,12 +20,12 @@ async function login(email: string): Promise<string> {
     body: JSON.stringify({ email, password: "Password123!" }),
   });
   if (!r.ok) throw new Error(`login failed for ${email}: ${r.status}`);
-  return (await r.json()).token;
+  return ((await r.json()) as { token: string }).token;
 }
 
 async function get(path: string, token: string) {
   const r = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  return { status: r.status, body: await r.json().catch(() => ({})) };
+  return { status: r.status, body: (await r.json().catch(() => ({}))) as any };
 }
 
 async function main() {
