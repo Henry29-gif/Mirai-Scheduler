@@ -225,6 +225,9 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
 .ftc-fix { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 0 2px 14px; }
 .ftc-fix input { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); font-size: 13px; }
 .btn-accept.sm, .btn.sm { padding: 5px 12px; font-size: 13px; }
+/* .btn defaults to a tall full-width form button — a .sm one is inline and
+   must not inherit the margin/size (e.g. "Download all" next to "Upload PDFs"). */
+.btn.sm { margin-top: 0; width: auto; height: auto; }
 
 /* Staffing-needs grid — one box per day, laid out as a responsive grid */
 .staffing-days-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
@@ -264,7 +267,7 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
 .doc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
 .doc-head h3 { font-size: 15px; margin: 0; }
 .doc-actions { display: flex; gap: 8px; align-items: center; }
-.doc-upload { cursor: pointer; display: inline-block; }
+.doc-upload { cursor: pointer; display: inline-block; line-height: normal; }
 .doc-list { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
 .doc-item { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .doc-item:last-child { border-bottom: none; }

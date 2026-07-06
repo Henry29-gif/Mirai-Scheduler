@@ -67,7 +67,7 @@ export function MyStaffView({ ctx }) {
                 ))}
                 <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
                   <TouchableOpacity style={styles.acceptBtnSm} onPress={() => uploadDocs(s.userId)}><Text style={styles.btnTextSm}>Upload PDFs</Text></TouchableOpacity>
-                  {staffDocs.length > 0 && <TouchableOpacity style={styles.btnSm} onPress={() => downloadFile(`${API}/api/staff/${s.userId}/documents/merged`, `${s.firstName}_${s.lastName}_documents.pdf`)}><Text style={styles.btnText}>Download all</Text></TouchableOpacity>}
+                  {staffDocs.length > 0 && <TouchableOpacity style={styles.btnSm} onPress={() => downloadFile(`${API}/api/staff/${s.userId}/documents/merged`, `${s.firstName}_${s.lastName}_documents.pdf`)}><Text style={styles.btnTextSm}>Download all</Text></TouchableOpacity>}
                 </View>
                 {docMsg ? <Text style={styles.note}>{docMsg}</Text> : null}
               </View>

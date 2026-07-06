@@ -108,7 +108,7 @@ const makeStyles = (C) => StyleSheet.create({
   tcStaff: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, marginTop: 10 },
   tcRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, paddingLeft: 8 },
 
-  btnSm: { backgroundColor: C.accent, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  btnSm: { backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }, // matches acceptBtnSm so side-by-side small buttons align
   acceptBtn: { backgroundColor: C.accent, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
   acceptBtnSm: { backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   declineBtn: { borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, justifyContent: "center" },
