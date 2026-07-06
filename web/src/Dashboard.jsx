@@ -351,6 +351,16 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
       return [...others, { date: dateStr, shift, certification: cert, count }];
     });
   }
+  // Stepper +/− : functional update so rapid clicks never read stale state
+  // (two fast clicks must step twice, not once).
+  function stepStaffingCell(dateStr, shift, cert, delta) {
+    setStaffing((rows) => {
+      const cur = rows.find((r) => r.date === dateStr && r.shift === shift && r.certification === cert)?.count ?? 0;
+      const count = Math.max(0, Math.min(20, cur + delta));
+      const others = rows.filter((r) => !(r.date === dateStr && r.shift === shift && r.certification === cert));
+      return [...others, { date: dateStr, shift, certification: cert, count }];
+    });
+  }
   // One-tap "no staff needed this day" — zero out all 9 cells of one date.
   function zeroDay(dateStr) {
     setStaffing((rows) => {
@@ -687,7 +697,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     attendance, loadAttendance, attAll, setAttAll, attendanceAll, loadAttendanceAll,
     facTimecards, tcMsg, setTcMsg,
     approveDay, reopenDay, fixFor, setFixFor, fixTime, setFixTime, correctPunch,
-    staffingVal, setStaffingCell, copyStaffingToAllDays, zeroDay, saveStaffing, staffingBusy, staffingMsg,
+    staffingVal, setStaffingCell, stepStaffingCell, copyStaffingToAllDays, zeroDay, saveStaffing, staffingBusy, staffingMsg,
     schedRange, setSchedRange,
     workload, reassignFor, reassignCands, reassignMsg, openReassign, doReassign,
     calView, setCalView, calWeek, setCalWeek,

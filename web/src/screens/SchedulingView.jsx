@@ -8,7 +8,7 @@ import { Toolbar } from "../components/Toolbar";
 export function SchedulingView({ ctx }) {
   const {
     currentSite, monthFirst, monthLast, schedRange, setSchedRange, scheduleDates,
-    copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, saveStaffing, staffingBusy,
+    copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, stepStaffingCell, saveStaffing, staffingBusy,
     staffingMsg, generate, busy, workload, schedule, period, monthName, schedulePeriod,
     calView, setCalView, calWeek, setCalWeek, dragId, setDragId, dropId, setDropId,
     onChipDragStart, onChipDrop, postSchedule, scheduleMsg,
@@ -47,7 +47,11 @@ export function SchedulingView({ ctx }) {
                     <td className="staffing-shift">{shift}</td>
                     {["RN", "LPN", "CCA"].map((cert) => (
                       <td key={cert}>
-                        <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(dateStr, shift, cert)} onChange={(e) => setStaffingCell(dateStr, shift, cert, e.target.value)} aria-label={`${label} ${shift} ${cert} count`} />
+                        <div className="stepper">
+                          <button type="button" className="stepper-btn" aria-label={`fewer ${cert} on ${label} ${shift}`} onClick={() => stepStaffingCell(dateStr, shift, cert, -1)}>−</button>
+                          <input type="number" min="0" max="20" className="staffing-input" value={staffingVal(dateStr, shift, cert)} onChange={(e) => setStaffingCell(dateStr, shift, cert, e.target.value)} aria-label={`${label} ${shift} ${cert} count`} />
+                          <button type="button" className="stepper-btn" aria-label={`more ${cert} on ${label} ${shift}`} onClick={() => stepStaffingCell(dateStr, shift, cert, 1)}>+</button>
+                        </div>
                       </td>
                     ))}
                   </tr>

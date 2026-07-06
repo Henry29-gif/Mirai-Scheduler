@@ -238,7 +238,7 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
 .btn.sm { margin-top: 0; width: auto; height: auto; }
 
 /* Staffing-needs grid — one box per day, laid out as a responsive grid */
-.staffing-days-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.staffing-days-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
 .staffing-day-box { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
 .staffing-day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: var(--accent-soft); padding: 8px 12px; }
 .staffing-day-title { font-weight: 700; color: var(--text); font-size: 13.5px; }
@@ -254,7 +254,13 @@ code { background: var(--surface-2); border: 1px solid var(--border); padding: 1
 .staffing-day-box .tbl th:not(:last-child), .staffing-day-box .tbl td:not(:last-child) { border-right: 1px solid var(--border); }
 .staffing-day-box .tbl tbody tr:last-child td { border-bottom: none; }
 .staffing-shift { font-weight: 500; text-align: left !important; }
-.staffing-input { width: 64px; padding: 8px; text-align: center; font-size: 15px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+/* − [count] + stepper: the buttons live OUTSIDE the number box, and the native
+   spinner is hidden so the number sits perfectly centered. */
+.stepper { display: inline-flex; align-items: center; gap: 3px; }
+.stepper-btn { width: 22px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-input); border-radius: 7px; background: var(--surface-2); color: var(--text-2); font-size: 15px; font-weight: 600; line-height: 1; cursor: pointer; transition: background 120ms ease; }
+.stepper-btn:hover { background: var(--surface); color: var(--text); }
+.staffing-input { width: 42px; padding: 6px 4px; text-align: center; font-size: 15px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); -moz-appearance: textfield; appearance: textfield; }
+.staffing-input::-webkit-outer-spin-button, .staffing-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .staffing-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(21,184,166,0.18); }
 .staffing-dates { text-align: left !important; color: var(--text-2); font-size: 12px; padding: 2px 0 10px; }
 .sched-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 14px; }
