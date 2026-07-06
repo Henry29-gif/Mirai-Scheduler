@@ -64,8 +64,9 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
   const [addShiftFor, setAddShiftFor] = useState(null);     // 'YYYY-MM-DD' or null
   const [addShiftPicker, setAddShiftPicker] = useState(false);
   const [addShiftSlot, setAddShiftSlot] = useState("Day");
-  const [addShiftCert, setAddShiftCert] = useState("RN");   // NOT "addCert" — that's the certification-form action
-  const [addShiftCands, setAddShiftCands] = useState(null);
+  const [addShiftCert, setAddShiftCert] = useState("All");  // role FILTER — NOT "addCert", that's the certification-form action
+  const [addShiftCands, setAddShiftCands] = useState(null); // ALL staff for the slot (rest-blocked flagged ineligible)
+  const [addShiftSearch, setAddShiftSearch] = useState("");
   // Timecards (manager/admin)
   const [facTimecards, setFacTimecards] = useState({ staff: [], rangeDays: 14 });
   const [tcSel, setTcSel] = useState(null);            // expanded staff in Timecards
@@ -334,28 +335,30 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     try { setReassignCands((await api(`/api/shifts/${shiftId}/candidates`, { token })).candidates || []); } catch { setReassignCands([]); }
   }
   // ── Add a single ad-hoc shift ────────────────────────────────────────────
-  async function loadAddShiftCands(dateStr, slot, cert) {
+  // One fetch per date/slot: ALL staff (role + search filter client-side).
+  async function loadAddShiftCands(dateStr, slot) {
     setAddShiftCands(null);
-    try { setAddShiftCands((await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&certification=${cert}${isAdmin && siteId ? `&facilityId=${siteId}` : ""}`, { token })).candidates || []); }
+    try { setAddShiftCands((await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&all=1${isAdmin && siteId ? `&facilityId=${siteId}` : ""}`, { token })).candidates || []); }
     catch (e) { setMsg(e.message); setAddShiftCands([]); }
   }
   function openAddShift() {
     const dateStr = `${year}-${pad2(month)}-01`;
-    setAddShiftFor(dateStr); setMsg("");
-    loadAddShiftCands(dateStr, addShiftSlot, addShiftCert);
+    setAddShiftFor(dateStr); setMsg(""); setAddShiftSearch("");
+    loadAddShiftCands(dateStr, addShiftSlot);
   }
   function closeAddShift() { setAddShiftFor(null); setAddShiftCands(null); }
   function onAddShiftDatePick(event, selected) {
     setAddShiftPicker(false);
     if (event.type === "dismissed" || !selected) return;
     const str = `${selected.getFullYear()}-${pad2(selected.getMonth() + 1)}-${pad2(selected.getDate())}`;
-    setAddShiftFor(str); loadAddShiftCands(str, addShiftSlot, addShiftCert);
+    setAddShiftFor(str); loadAddShiftCands(str, addShiftSlot);
   }
-  function pickAddShiftSlot(s) { setAddShiftSlot(s); loadAddShiftCands(addShiftFor, s, addShiftCert); }
-  function pickAddShiftCert(c) { setAddShiftCert(c); loadAddShiftCands(addShiftFor, addShiftSlot, c); }
-  // staffId = null posts the slot to the open board instead.
-  const createAdhocShift = (staffId) => act(async () => {
-    await api("/api/shifts", { method: "POST", token, body: { date: addShiftFor, slot: addShiftSlot, certification: addShiftCert, ...(staffId ? { staffId } : {}), ...(isAdmin && siteId ? { facilityId: siteId } : {}) } });
+  function pickAddShiftSlot(s) { setAddShiftSlot(s); loadAddShiftCands(addShiftFor, s); }
+  function pickAddShiftCert(c) { setAddShiftCert(c); } // pure filter — no refetch
+  // Assigning a person creates a shift of THEIR role; staffId = null posts an
+  // open shift of the given role instead.
+  const createAdhocShift = (staffId, certification) => act(async () => {
+    await api("/api/shifts", { method: "POST", token, body: { date: addShiftFor, slot: addShiftSlot, certification, ...(staffId ? { staffId } : {}), ...(isAdmin && siteId ? { facilityId: siteId } : {}) } });
     setAddShiftFor(null); setAddShiftCands(null);
   }, "Shift added.");
 
@@ -471,6 +474,7 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     workload, postSchedule, openReassign, reassignFor, reassignCands, doReassign,
     addShiftFor, openAddShift, closeAddShift, addShiftPicker, setAddShiftPicker, onAddShiftDatePick,
     addShiftSlot, pickAddShiftSlot, addShiftCert, pickAddShiftCert, addShiftCands, createAdhocShift,
+    addShiftSearch, setAddShiftSearch,
     facTimecards, tcSel, setTcSel, reopenDay, approveDay, setFixingDay, fixingDay, onFixTime,
     deleteAccount, generate,
   };

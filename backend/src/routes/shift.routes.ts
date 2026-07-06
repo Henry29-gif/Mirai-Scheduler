@@ -72,22 +72,28 @@ function validSlotInput(date?: string, slot?: string, certification?: string): s
 // ── GET /api/shifts/slot-candidates — ranked staff for a shift that doesn't
 //    exist yet (the calendar's "+ Add shift" panel). Facility-wide, rest-safe,
 //    certification-matched; costs are admin-only, same as /:id/candidates. ──
+// With `all=1` it returns EVERY shift-capable staffer at the facility (any
+// cert): rest-safe people are `eligible`; the rest come back with
+// `eligible: false, reason: "rest"` so the UI can show-but-disable them.
 router.get("/slot-candidates", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res, next) => {
   try {
-    const { date, slot, certification, facilityId } = req.query as any;
-    const bad = validSlotInput(date, slot, certification);
-    if (bad) return res.status(400).json({ message: bad });
+    const { date, slot, certification, facilityId, all } = req.query as any;
+    const wantAll = all === "1";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return res.status(400).json({ message: "date must be YYYY-MM-DD" });
+    if (!slot || !(slot in SLOT_START_HOUR)) return res.status(400).json({ message: "slot must be Day, Evening or Night" });
+    if (!wantAll && (!certification || !CERTS.includes(certification))) return res.status(400).json({ message: "certification must be RN, LPN or CCA" });
     const targetFacilityId = await resolveScopedFacility(req, facilityId);
     const { start, end } = slotTimes(date, slot);
 
     const users = await prisma.user.findMany({
-      where: { facilityId: targetFacilityId, isActive: true, certification },
+      where: { facilityId: targetFacilityId, isActive: true, certification: wantAll ? { in: CERTS as any } : certification },
       select: { id: true, firstName: true, lastName: true, certification: true, hourlyRate: true },
     });
     const isAdmin = req.user!.role === "ADMIN";
     const candidates = [];
     for (const u of users) {
-      if (await violatesRest(u.id, start, end)) continue; // hard rule
+      const restBlocked = await violatesRest(u.id, start, end); // hard rule
+      if (restBlocked && !wantAll) continue;
       const wkHours = await weeklyHours(u.id, start);
       const wouldBeOvertime = wkHours + SLOT_DURATION_H > MAX_HOURS_PER_WEEK;
       const otCost = Math.round((u.hourlyRate || 0) * SLOT_DURATION_H * (wouldBeOvertime ? 1.5 : 1));
@@ -97,11 +103,14 @@ router.get("/slot-candidates", requireRole("ADMIN", "MANAGER"), async (req: Auth
         certification: u.certification,
         weeklyHours: Math.round(wkHours),
         wouldBeOvertime,
+        eligible: !restBlocked,
+        ...(restBlocked ? { reason: "rest" } : {}),
         ...(isAdmin ? { hourlyRate: u.hourlyRate, shiftCost: otCost } : {}),
         _otCost: otCost,
       });
     }
     candidates.sort((x, y) =>
+      (x.eligible ? 0 : 1) - (y.eligible ? 0 : 1) ||
       (x.wouldBeOvertime ? 1 : 0) - (y.wouldBeOvertime ? 1 : 0) ||
       x.weeklyHours - y.weeklyHours ||
       x._otCost - y._otCost

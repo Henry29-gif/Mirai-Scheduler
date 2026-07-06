@@ -245,6 +245,14 @@ test("ad-hoc shift: admin adds a single shift; cert + rest rules enforced", asyn
     assert.equal(created.body.shift.status, "DRAFT", "added to a draft month → shift stays draft");
   }
 
+  // all=1 lists EVERYONE (all roles) with an eligibility flag; people already
+  // working that slot appear as rest-blocked instead of vanishing.
+  const everyone = (await get(`/api/shifts/slot-candidates?date=${dateStr}&slot=Day&all=1&facilityId=${fac.id}`, adminB)).body.candidates || [];
+  assert.ok(everyone.length > 0);
+  assert.ok(everyone.every((c: any) => typeof c.eligible === "boolean"), "every row carries an eligible flag");
+  assert.ok(new Set(everyone.map((c: any) => c.certification)).size > 1, "all roles should be listed");
+  assert.ok(everyone.some((c: any) => c.eligible === false && c.reason === "rest"), "slot-workers must appear as rest-blocked");
+
   const sched = (await get(`/api/schedules?month=${month}&year=${year}&facilityId=${fac.id}`, adminB)).body.shifts as any[];
   // Rest rule: whoever already works Day·RN that date can't be double-booked into the same slot.
   const busy = sched.find((s) => s.staff && s.requiredCertification === "RN" && new Date(s.startTime).getDate() === 5 && (s.notes || "").startsWith("Day"));

@@ -15,7 +15,12 @@ export function SchedulingView({ ctx }) {
     shifts, openReassign, reassignFor, reassignCands, doReassign, callSick, drop,
     addShiftFor, openAddShift, closeAddShift, addShiftPicker, setAddShiftPicker, onAddShiftDatePick,
     addShiftSlot, pickAddShiftSlot, addShiftCert, pickAddShiftCert, addShiftCands, createAdhocShift,
+    addShiftSearch, setAddShiftSearch,
   } = ctx;
+  // Role chips + search filter the full staff list client-side.
+  const visibleAddCands = (addShiftCands || []).filter((p) =>
+    (addShiftCert === "All" || p.certification === addShiftCert) &&
+    p.name.toLowerCase().includes(addShiftSearch.trim().toLowerCase()));
   return (<>
     <View style={styles.card}>
       {siteSwitcher}
@@ -96,22 +101,29 @@ export function SchedulingView({ ctx }) {
             ))}
           </View>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-            {["RN", "LPN", "CCA"].map((c) => (
+            {["All", "RN", "LPN", "CCA"].map((c) => (
               <TouchableOpacity key={c} style={[styles.typeChip, addShiftCert === c && styles.typeChipOn]} onPress={() => pickAddShiftCert(c)}>
                 <Text style={[styles.typeChipText, addShiftCert === c && styles.typeChipTextOn]}>{c}</Text>
               </TouchableOpacity>
             ))}
           </View>
-          {addShiftCands === null ? <Text style={[styles.muted, { marginTop: 8 }]}>Finding who can take it…</Text>
-            : addShiftCands.length === 0 ? <Text style={[styles.muted, { marginTop: 8 }]}>No {addShiftCert} is rest-safe for that slot — you can still post it as open.</Text>
-            : addShiftCands.map((p) => (
-              <View key={p.id} style={styles.tradeOffer}>
-                <Text style={{ flex: 1, color: C.text, fontSize: 13 }}>{p.name} · {p.weeklyHours}h{p.wouldBeOvertime ? " · OT" : ""}{p.shiftCost != null ? ` · $${p.shiftCost}` : ""}</Text>
-                <TouchableOpacity style={styles.acceptBtnSm} disabled={busy} onPress={() => createAdhocShift(p.id)}><Text style={styles.btnTextSm}>Assign</Text></TouchableOpacity>
+          <TextInput
+            style={[styles.input, { marginTop: 8 }]} value={addShiftSearch} onChangeText={setAddShiftSearch}
+            placeholder="Search staff by name…" placeholderTextColor={C.text2} autoCapitalize="none"
+          />
+          {addShiftCands === null ? <Text style={[styles.muted, { marginTop: 8 }]}>Loading your staff…</Text>
+            : visibleAddCands.length === 0 ? <Text style={[styles.muted, { marginTop: 8 }]}>No one matches.</Text>
+            : visibleAddCands.map((p) => (
+              <View key={p.id} style={[styles.tradeOffer, !p.eligible && { opacity: 0.5 }]}>
+                <View style={styles.rowMid}><CertChip value={p.certification} /></View>
+                <Text style={{ flex: 1, color: C.text, fontSize: 13 }}>{p.name} · {p.weeklyHours}h{!p.eligible ? " · needs 8h rest" : p.wouldBeOvertime ? " · OT" : ""}{p.eligible && p.shiftCost != null ? ` · $${p.shiftCost}` : ""}</Text>
+                {p.eligible && <TouchableOpacity style={styles.acceptBtnSm} disabled={busy} onPress={() => createAdhocShift(p.id, p.certification)}><Text style={styles.btnTextSm}>Assign</Text></TouchableOpacity>}
               </View>
             ))}
           <View style={{ flexDirection: "row", gap: 18, marginTop: 10 }}>
-            <TouchableOpacity disabled={busy} onPress={() => createAdhocShift(null)}><Text style={styles.linkTrade}>Post as open shift</Text></TouchableOpacity>
+            {addShiftCert !== "All" && (
+              <TouchableOpacity disabled={busy} onPress={() => createAdhocShift(null, addShiftCert)}><Text style={styles.linkTrade}>Post as open {addShiftCert} shift</Text></TouchableOpacity>
+            )}
             <TouchableOpacity onPress={closeAddShift}><Text style={styles.linkDrop}>Cancel</Text></TouchableOpacity>
           </View>
         </View>

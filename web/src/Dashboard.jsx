@@ -70,8 +70,9 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   // Add-a-shift panel (the calendar "+"): date being added to + slot/role + candidates
   const [addShiftFor, setAddShiftFor] = useState(null);    // "YYYY-MM-DD" or null
   const [addSlot, setAddSlot] = useState("Day");
-  const [addShiftCert, setAddShiftCert] = useState("RN");  // NOT "addCert" — that's the certification-form action
-  const [addCands, setAddCands] = useState(null);
+  const [addShiftCert, setAddShiftCert] = useState("All"); // role FILTER (All/RN/LPN/CCA) — NOT "addCert", that's the certification-form action
+  const [addCands, setAddCands] = useState(null);          // ALL staff for the slot (incl. rest-blocked, flagged ineligible)
+  const [addSearch, setAddSearch] = useState("");
   const [addMsg, setAddMsg] = useState("");
   // Calendar (draft-schedule makeover): month/week toggle + drag-and-drop state
   const [calView, setCalView] = useState("month");  // 'month' | 'week'
@@ -433,27 +434,29 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     } catch (e) { setReassignMsg(e.message); }
   }
   // ── Add a single ad-hoc shift (the calendar "+") ────────────────────────
-  async function loadAddCandidates(dateStr, slot, cert) {
+  // One fetch per slot: ALL staff for that slot (role + search filter client-side).
+  async function loadAddCandidates(dateStr, slot) {
     setAddCands(null);
     try {
-      const d = await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&certification=${cert}${siteId ? `&facilityId=${siteId}` : ""}`, { token });
+      const d = await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&all=1${siteId ? `&facilityId=${siteId}` : ""}`, { token });
       setAddCands(d.candidates || []);
     } catch (e) { setAddMsg(e.message); setAddCands([]); }
   }
   function openAddShift(dateStr) {
-    setAddShiftFor(dateStr); setAddMsg("");
-    loadAddCandidates(dateStr, addSlot, addShiftCert);
+    setAddShiftFor(dateStr); setAddMsg(""); setAddSearch("");
+    loadAddCandidates(dateStr, addSlot);
   }
   function closeAddShift() { setAddShiftFor(null); setAddCands(null); setAddMsg(""); }
-  function pickAddSlot(slot) { setAddSlot(slot); if (addShiftFor) loadAddCandidates(addShiftFor, slot, addShiftCert); }
-  function pickAddCert(cert) { setAddShiftCert(cert); if (addShiftFor) loadAddCandidates(addShiftFor, addSlot, cert); }
-  // staffId = null posts the slot to the open board instead.
-  async function createAdhocShift(staffId) {
+  function pickAddSlot(slot) { setAddSlot(slot); if (addShiftFor) loadAddCandidates(addShiftFor, slot); }
+  function pickAddCert(cert) { setAddShiftCert(cert); } // pure filter — no refetch
+  // Assigning a person creates a shift of THEIR role; staffId = null posts an
+  // open shift of the given role instead.
+  async function createAdhocShift(staffId, certification) {
     setAddMsg("");
     try {
       const r = await api("/api/shifts", {
         method: "POST", token,
-        body: { date: addShiftFor, slot: addSlot, certification: addShiftCert, ...(staffId ? { staffId } : {}), ...(siteId ? { facilityId: siteId } : {}) },
+        body: { date: addShiftFor, slot: addSlot, certification, ...(staffId ? { staffId } : {}), ...(siteId ? { facilityId: siteId } : {}) },
       });
       setScheduleMsg(r.message);
       closeAddShift();
@@ -736,7 +739,7 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     schedRange, setSchedRange,
     workload, reassignFor, reassignCands, reassignMsg, openReassign, doReassign,
     addShiftFor, openAddShift, closeAddShift, addSlot, pickAddSlot, addShiftCert, pickAddCert,
-    addCands, addMsg, createAdhocShift,
+    addCands, addSearch, setAddSearch, addMsg, createAdhocShift,
     calView, setCalView, calWeek, setCalWeek,
     dragId, setDragId, dropId, setDropId, onChipDragStart, onChipDrop,
     roster, expandStaff, staffExpanded, staffDocs, staffCerts, staffMsg, relClass,

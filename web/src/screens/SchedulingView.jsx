@@ -13,9 +13,13 @@ export function SchedulingView({ ctx }) {
     calView, setCalView, calWeek, setCalWeek, dragId, setDragId, dropId, setDropId,
     onChipDragStart, onChipDrop, postSchedule, scheduleMsg,
     addShiftFor, openAddShift, closeAddShift, addSlot, pickAddSlot, addShiftCert, pickAddCert,
-    addCands, addMsg, createAdhocShift,
+    addCands, addSearch, setAddSearch, addMsg, createAdhocShift,
   } = ctx;
   const dateOf = (dayNum) => `${period.year}-${String(period.month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+  // Role chips + search filter the full staff list client-side.
+  const visibleCands = (addCands || []).filter((c) =>
+    (addShiftCert === "All" || c.certification === addShiftCert) &&
+    c.name.toLowerCase().includes(addSearch.trim().toLowerCase()));
 
   // Manager-only staffing-needs grid.
   const staffingCard = (
@@ -223,29 +227,42 @@ export function SchedulingView({ ctx }) {
           <div className="add-shift-row">
             <span className="muted">Role</span>
             <div className="att-tabs">
-              {["RN", "LPN", "CCA"].map((c) => <button key={c} type="button" className={addShiftCert === c ? "on" : ""} onClick={() => pickAddCert(c)}>{c}</button>)}
+              {["All", "RN", "LPN", "CCA"].map((c) => <button key={c} type="button" className={addShiftCert === c ? "on" : ""} onClick={() => pickAddCert(c)}>{c}</button>)}
             </div>
           </div>
+          <input
+            type="text" className="add-shift-search" placeholder="Search staff by name…"
+            value={addSearch} onChange={(e) => setAddSearch(e.target.value)}
+          />
           {addCands === null ? (
-            <p className="muted">Finding who can take it…</p>
-          ) : addCands.length === 0 ? (
-            <p className="muted">No {addCert} is rest-safe for that slot — you can still post it to the open board.</p>
+            <p className="muted">Loading your staff…</p>
+          ) : visibleCands.length === 0 ? (
+            <p className="muted">No one matches{addSearch ? ` “${addSearch}”` : ""}{addShiftCert !== "All" ? ` in ${addShiftCert}` : ""}.</p>
           ) : (
             <div className="cand-panel">
-              {addCands.map((c, i) => (
-                <div key={c.id} className="cand-row">
-                  <span className="cand-rank">{i === 0 ? "★" : i + 1}</span>
+              {visibleCands.map((c) => (
+                <div key={c.id} className={"cand-row" + (c.eligible ? "" : " ineligible")}>
                   <span className="cand-name">{c.name}</span>
+                  <Cert value={c.certification} />
                   <span className="muted">{c.weeklyHours}h this wk</span>
-                  {c.wouldBeOvertime
+                  {!c.eligible
+                    ? <span className="rest-flag" title="Assigning would break the 8-hour rest / double rule">needs 8h rest</span>
+                    : c.wouldBeOvertime
                     ? <span className="ot-flag">overtime{c.shiftCost != null ? ` · $${c.shiftCost}` : ""}</span>
                     : <span className="ok-flag">no overtime{c.shiftCost != null ? ` · $${c.shiftCost}` : ""}</span>}
-                  <button className="btn-accept" onClick={() => createAdhocShift(c.id)}>Assign</button>
+                  <button className="btn-accept" disabled={!c.eligible} onClick={() => createAdhocShift(c.id, c.certification)}>Assign</button>
                 </div>
               ))}
             </div>
           )}
-          <button type="button" className="btn-ghost sm add-shift-open" onClick={() => createAdhocShift(null)}>Post as open shift instead</button>
+          <button
+            type="button" className="btn-ghost sm add-shift-open"
+            disabled={addShiftCert === "All"}
+            title={addShiftCert === "All" ? "Pick a role (RN/LPN/CCA) to post an open shift" : undefined}
+            onClick={() => createAdhocShift(null, addShiftCert)}
+          >
+            {addShiftCert === "All" ? "Post as open shift (pick a role first)" : `Post as open ${addShiftCert} shift instead`}
+          </button>
           {addMsg && <div className="note">{addMsg}</div>}
         </div>
       )}
