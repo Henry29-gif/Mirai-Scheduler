@@ -53,6 +53,142 @@ async function violatesRest(staffId: string, shiftStart: Date, shiftEnd: Date) {
   return !checkRest(near, shiftStart, shiftEnd).ok;
 }
 
+// Ad-hoc shift slots — same clock times the auto-scheduler uses.
+const SLOT_START_HOUR: Record<string, number> = { Day: 7, Evening: 15, Night: 23 };
+const SLOT_DURATION_H = 8;
+const CERTS = ["RN", "LPN", "CCA"];
+function slotTimes(dateStr: string, slot: string) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const start = new Date(y, m - 1, d, SLOT_START_HOUR[slot], 0, 0, 0);
+  return { start, end: new Date(start.getTime() + SLOT_DURATION_H * 36e5) };
+}
+function validSlotInput(date?: string, slot?: string, certification?: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return "date must be YYYY-MM-DD";
+  if (!slot || !(slot in SLOT_START_HOUR)) return "slot must be Day, Evening or Night";
+  if (!certification || !CERTS.includes(certification)) return "certification must be RN, LPN or CCA";
+  return null;
+}
+
+// ── GET /api/shifts/slot-candidates — ranked staff for a shift that doesn't
+//    exist yet (the calendar's "+ Add shift" panel). Facility-wide, rest-safe,
+//    certification-matched; costs are admin-only, same as /:id/candidates. ──
+router.get("/slot-candidates", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res, next) => {
+  try {
+    const { date, slot, certification, facilityId } = req.query as any;
+    const bad = validSlotInput(date, slot, certification);
+    if (bad) return res.status(400).json({ message: bad });
+    const targetFacilityId = await resolveScopedFacility(req, facilityId);
+    const { start, end } = slotTimes(date, slot);
+
+    const users = await prisma.user.findMany({
+      where: { facilityId: targetFacilityId, isActive: true, certification },
+      select: { id: true, firstName: true, lastName: true, certification: true, hourlyRate: true },
+    });
+    const isAdmin = req.user!.role === "ADMIN";
+    const candidates = [];
+    for (const u of users) {
+      if (await violatesRest(u.id, start, end)) continue; // hard rule
+      const wkHours = await weeklyHours(u.id, start);
+      const wouldBeOvertime = wkHours + SLOT_DURATION_H > MAX_HOURS_PER_WEEK;
+      const otCost = Math.round((u.hourlyRate || 0) * SLOT_DURATION_H * (wouldBeOvertime ? 1.5 : 1));
+      candidates.push({
+        id: u.id,
+        name: `${u.firstName} ${u.lastName}`,
+        certification: u.certification,
+        weeklyHours: Math.round(wkHours),
+        wouldBeOvertime,
+        ...(isAdmin ? { hourlyRate: u.hourlyRate, shiftCost: otCost } : {}),
+        _otCost: otCost,
+      });
+    }
+    candidates.sort((x, y) =>
+      (x.wouldBeOvertime ? 1 : 0) - (y.wouldBeOvertime ? 1 : 0) ||
+      x.weeklyHours - y.weeklyHours ||
+      x._otCost - y._otCost
+    );
+    res.json({ candidates: candidates.map(({ _otCost, ...c }) => c) });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/shifts — add a single ad-hoc shift (the calendar "+") ─────────
+// Body: { date: "YYYY-MM-DD", slot: Day|Evening|Night, certification, staffId?,
+// facilityId? }. With staffId the shift is assigned to that person — it goes
+// live immediately if the month is already posted, otherwise it joins the
+// draft. Without staffId it's posted to the open board.
+router.post("/", requireRole("ADMIN", "MANAGER"), async (req: AuthRequest, res, next) => {
+  try {
+    const { date, slot, certification, staffId, facilityId } = (req.body || {}) as {
+      date?: string; slot?: string; certification?: string; staffId?: string; facilityId?: string;
+    };
+    const bad = validSlotInput(date, slot, certification);
+    if (bad) return res.status(400).json({ message: bad });
+    const targetFacilityId = await resolveScopedFacility(req, facilityId);
+    const { start, end } = slotTimes(date!, slot!);
+    const [year, month] = date!.split("-").map(Number);
+
+    // The month's period — created as a draft if it doesn't exist yet.
+    const period = await prisma.schedulePeriod.upsert({
+      where: { facilityId_month_year: { facilityId: targetFacilityId, month, year } },
+      create: { facilityId: targetFacilityId, month, year, status: "DRAFT" },
+      update: {},
+    });
+
+    let unitId: string | undefined;
+    let staff: { firstName: string; lastName: string } | null = null;
+    if (staffId) {
+      const u = await prisma.user.findUnique({
+        where: { id: staffId },
+        select: { id: true, firstName: true, lastName: true, certification: true, facilityId: true, isActive: true },
+      });
+      if (!u || !u.isActive || u.facilityId !== targetFacilityId) return res.status(400).json({ message: "That staff member isn't at this facility" });
+      if (u.certification !== certification) return res.status(400).json({ message: `${u.firstName} ${u.lastName} isn't a ${certification}.` });
+      if (await violatesRest(staffId, start, end)) return res.status(400).json({ message: `${u.firstName} ${u.lastName} can't take this — it breaks the 8-hour rest / double rule.` });
+      staff = u;
+      unitId = (await prisma.unitStaffAssignment.findFirst({ where: { userId: staffId }, select: { unitId: true } }))?.unitId;
+    }
+    if (!unitId) {
+      const unit = await prisma.unit.findFirst({ where: { facilityId: targetFacilityId }, select: { id: true } });
+      if (!unit) return res.status(400).json({ message: "This facility has no units yet" });
+      unitId = unit.id;
+    }
+
+    const status = staffId ? (period.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT") : "OPEN";
+    const shift = await prisma.shift.create({
+      data: {
+        unitId,
+        staffId: staffId || null,
+        schedulePeriodId: period.id,
+        startTime: start,
+        endTime: end,
+        status,
+        ...(staffId ? {} : { openReason: "UNFILLED" }),
+        requiredCertification: certification as any,
+        notes: `${slot} · ${certification}`, // the calendar buckets by this prefix
+      },
+    });
+
+    await logAudit({
+      facilityId: targetFacilityId,
+      actorId: req.user!.id,
+      action: "SHIFT_ADDED",
+      summary: staff
+        ? `Added a ${certification} ${slot} shift on ${date} for ${staff.firstName} ${staff.lastName}`
+        : `Added an open ${certification} ${slot} shift on ${date}`,
+      entityType: "Shift", entityId: shift.id,
+    });
+    if (staffId && status === "PUBLISHED") {
+      await notify(staffId, "New shift assigned", `You've been added to a ${certification} ${slot} shift on ${start.toLocaleDateString()}.`, "info");
+    }
+
+    res.status(201).json({
+      message: staff
+        ? `Added ${staff.firstName} ${staff.lastName} — ${slot}, ${date} ✓${status === "DRAFT" ? " (in the draft; post the schedule to notify them)" : " — they've been notified"}`
+        : `Open ${certification} ${slot} shift posted for ${date} ✓`,
+      shift,
+    });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/shifts/open — open shifts for a facility's month ───────────────
 router.get("/open", async (req: AuthRequest, res, next) => {
   try {

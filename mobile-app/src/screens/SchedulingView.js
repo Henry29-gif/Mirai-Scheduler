@@ -13,6 +13,8 @@ export function SchedulingView({ ctx }) {
     setSchedPickerFor, onSchedPick, scheduleDates, copyStaffingToAllDays, zeroDay, staffingVal,
     setStaffingCell, saveStaffing, generateRange, busy, msg, workload, postSchedule,
     shifts, openReassign, reassignFor, reassignCands, doReassign, callSick, drop,
+    addShiftFor, openAddShift, closeAddShift, addShiftPicker, setAddShiftPicker, onAddShiftDatePick,
+    addShiftSlot, pickAddShiftSlot, addShiftCert, pickAddShiftCert, addShiftCands, createAdhocShift,
   } = ctx;
   return (<>
     <View style={styles.card}>
@@ -75,8 +77,47 @@ export function SchedulingView({ ctx }) {
     )}
 
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Schedule · {monthName}</Text>
-      {shifts.length === 0 ? <Text style={styles.empty}>No shifts yet — generate above.</Text> : shifts.slice(0, 40).map((s) => (
+      <View style={styles.cardHead}>
+        <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Schedule · {monthName}</Text>
+        <TouchableOpacity style={styles.acceptBtnSm} onPress={openAddShift}><Text style={styles.btnTextSm}>Add shift</Text></TouchableOpacity>
+      </View>
+
+      {addShiftFor && (
+        <View style={[styles.tradePanel, { marginTop: 4 }]}>
+          <TouchableOpacity style={[styles.input, { justifyContent: "center" }]} onPress={() => setAddShiftPicker(true)}>
+            <Text style={{ color: C.text, fontSize: 15 }}>{fmtDay(addShiftFor)}</Text>
+          </TouchableOpacity>
+          {addShiftPicker && <DateTimePicker value={new Date(addShiftFor + "T00:00:00")} mode="date" onChange={onAddShiftDatePick} />}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+            {["Day", "Evening", "Night"].map((s) => (
+              <TouchableOpacity key={s} style={[styles.typeChip, addShiftSlot === s && styles.typeChipOn]} onPress={() => pickAddShiftSlot(s)}>
+                <Text style={[styles.typeChipText, addShiftSlot === s && styles.typeChipTextOn]}>{s}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+            {["RN", "LPN", "CCA"].map((c) => (
+              <TouchableOpacity key={c} style={[styles.typeChip, addShiftCert === c && styles.typeChipOn]} onPress={() => pickAddShiftCert(c)}>
+                <Text style={[styles.typeChipText, addShiftCert === c && styles.typeChipTextOn]}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {addShiftCands === null ? <Text style={[styles.muted, { marginTop: 8 }]}>Finding who can take it…</Text>
+            : addShiftCands.length === 0 ? <Text style={[styles.muted, { marginTop: 8 }]}>No {addShiftCert} is rest-safe for that slot — you can still post it as open.</Text>
+            : addShiftCands.map((p) => (
+              <View key={p.id} style={styles.tradeOffer}>
+                <Text style={{ flex: 1, color: C.text, fontSize: 13 }}>{p.name} · {p.weeklyHours}h{p.wouldBeOvertime ? " · OT" : ""}{p.shiftCost != null ? ` · $${p.shiftCost}` : ""}</Text>
+                <TouchableOpacity style={styles.acceptBtnSm} disabled={busy} onPress={() => createAdhocShift(p.id)}><Text style={styles.btnTextSm}>Assign</Text></TouchableOpacity>
+              </View>
+            ))}
+          <View style={{ flexDirection: "row", gap: 18, marginTop: 10 }}>
+            <TouchableOpacity disabled={busy} onPress={() => createAdhocShift(null)}><Text style={styles.linkTrade}>Post as open shift</Text></TouchableOpacity>
+            <TouchableOpacity onPress={closeAddShift}><Text style={styles.linkDrop}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {shifts.length === 0 ? <Text style={styles.empty}>No shifts yet — generate above, or add a single shift.</Text> : shifts.slice(0, 40).map((s) => (
         <View key={s.id}>
           <View style={styles.shiftRow}>
             <View style={{ flex: 1 }}>

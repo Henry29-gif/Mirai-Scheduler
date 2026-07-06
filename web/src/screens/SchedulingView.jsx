@@ -12,7 +12,10 @@ export function SchedulingView({ ctx }) {
     staffingMsg, generate, busy, workload, schedule, period, monthName, schedulePeriod,
     calView, setCalView, calWeek, setCalWeek, dragId, setDragId, dropId, setDropId,
     onChipDragStart, onChipDrop, postSchedule, scheduleMsg,
+    addShiftFor, openAddShift, closeAddShift, addSlot, pickAddSlot, addShiftCert, pickAddCert,
+    addCands, addMsg, createAdhocShift,
   } = ctx;
+  const dateOf = (dayNum) => `${period.year}-${String(period.month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
 
   // Manager-only staffing-needs grid.
   const staffingCard = (
@@ -165,7 +168,11 @@ export function SchedulingView({ ctx }) {
     const dow = new Date(period.year, period.month - 1, dayNum).toLocaleDateString(undefined, { weekday: "short" });
     return (
       <div className={`cal-day${big ? " cal-day-big" : ""}`}>
-        <div className="cal-day-head"><span className="cal-daynum">{dayNum}</span>{big && <span className="cal-dow muted">{dow}</span>}</div>
+        <div className="cal-day-head">
+          <span className="cal-daynum">{dayNum}</span>
+          {big && <span className="cal-dow muted">{dow}</span>}
+          <button type="button" className="cal-add" title="Add a shift on this day" onClick={() => openAddShift(dateOf(dayNum))}>+</button>
+        </div>
         {CAL_SLOTS.map((sl) => (
           <div className="cal-slot" key={sl}>
             <span className="cal-slot-label">{sl}</span>
@@ -201,44 +208,84 @@ export function SchedulingView({ ctx }) {
         </div>
       </div>
 
+      {addShiftFor && (
+        <div className="add-shift-panel">
+          <div className="add-shift-head">
+            <strong>Add a shift — {(scheduleDates.find((d) => d.dateStr === addShiftFor) || { label: addShiftFor }).label}</strong>
+            <button type="button" className="btn-ghost sm" onClick={closeAddShift}>Cancel</button>
+          </div>
+          <div className="add-shift-row">
+            <span className="muted">Shift</span>
+            <div className="att-tabs">
+              {["Day", "Evening", "Night"].map((s) => <button key={s} type="button" className={addSlot === s ? "on" : ""} onClick={() => pickAddSlot(s)}>{s}</button>)}
+            </div>
+          </div>
+          <div className="add-shift-row">
+            <span className="muted">Role</span>
+            <div className="att-tabs">
+              {["RN", "LPN", "CCA"].map((c) => <button key={c} type="button" className={addShiftCert === c ? "on" : ""} onClick={() => pickAddCert(c)}>{c}</button>)}
+            </div>
+          </div>
+          {addCands === null ? (
+            <p className="muted">Finding who can take it…</p>
+          ) : addCands.length === 0 ? (
+            <p className="muted">No {addCert} is rest-safe for that slot — you can still post it to the open board.</p>
+          ) : (
+            <div className="cand-panel">
+              {addCands.map((c, i) => (
+                <div key={c.id} className="cand-row">
+                  <span className="cand-rank">{i === 0 ? "★" : i + 1}</span>
+                  <span className="cand-name">{c.name}</span>
+                  <span className="muted">{c.weeklyHours}h this wk</span>
+                  {c.wouldBeOvertime
+                    ? <span className="ot-flag">overtime{c.shiftCost != null ? ` · $${c.shiftCost}` : ""}</span>
+                    : <span className="ok-flag">no overtime{c.shiftCost != null ? ` · $${c.shiftCost}` : ""}</span>}
+                  <button className="btn-accept" onClick={() => createAdhocShift(c.id)}>Assign</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" className="btn-ghost sm add-shift-open" onClick={() => createAdhocShift(null)}>Post as open shift instead</button>
+          {addMsg && <div className="note">{addMsg}</div>}
+        </div>
+      )}
+
       {(!Array.isArray(schedule) || schedule.length === 0) ? (
-        <div className="empty">
+        <div className="empty" style={{ paddingBottom: 4 }}>
           <p>No shifts for {monthName} yet.</p>
-          <p className="muted">Set your staffing needs above, then click “Generate”.</p>
+          <p className="muted">Set your staffing needs above and click “Generate” — or use a day's “+” below to add a single shift.</p>
         </div>
       ) : (
-        <>
-          <div className="cal-legend">
-            <span className="muted">Drag a name onto a coworker to <b>swap</b>, or onto an <b>Open</b> slot to <b>fill</b> it (their old slot then opens). Same role only; the 8-hour-rest rule still applies.</span>
-            <span className="cal-legend-roles">
-              <span className="chip-role chip-RN">RN</span>
-              <span className="chip-role chip-LPN">LPN</span>
-              <span className="chip-role chip-CCA">CCA</span>
-            </span>
-          </div>
+        <div className="cal-legend">
+          <span className="muted">Drag a name onto a coworker to <b>swap</b>, or onto an <b>Open</b> slot to <b>fill</b> it (their old slot then opens). Same role only; the 8-hour-rest rule still applies. Use a day's <b>+</b> to add a single shift.</span>
+          <span className="cal-legend-roles">
+            <span className="chip-role chip-RN">RN</span>
+            <span className="chip-role chip-LPN">LPN</span>
+            <span className="chip-role chip-CCA">CCA</span>
+          </span>
+        </div>
+      )}
 
-          {calView === "week" && (
-            <div className="cal-week-nav">
-              <button className="navbtn" disabled={safeWeek <= 0} onClick={() => setCalWeek(Math.max(0, safeWeek - 1))}>‹</button>
-              <span className="muted">Week {safeWeek + 1} of {calWeeks.length}</span>
-              <button className="navbtn" disabled={safeWeek >= calWeeks.length - 1} onClick={() => setCalWeek(Math.min(calWeeks.length - 1, safeWeek + 1))}>›</button>
-            </div>
-          )}
+      {calView === "week" && (
+        <div className="cal-week-nav">
+          <button className="navbtn" disabled={safeWeek <= 0} onClick={() => setCalWeek(Math.max(0, safeWeek - 1))}>‹</button>
+          <span className="muted">Week {safeWeek + 1} of {calWeeks.length}</span>
+          <button className="navbtn" disabled={safeWeek >= calWeeks.length - 1} onClick={() => setCalWeek(Math.min(calWeeks.length - 1, safeWeek + 1))}>›</button>
+        </div>
+      )}
 
-          <div className={"cal-dow-head" + (calView === "week" ? " wide" : "")}>
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="cal-dow-cell muted">{d}</div>)}
-          </div>
+      <div className={"cal-dow-head" + (calView === "week" ? " wide" : "")}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="cal-dow-cell muted">{d}</div>)}
+      </div>
 
-          {calView === "month" ? (
-            <div className="cal-month">
-              {calWeeks.flat().map((d, i) => <React.Fragment key={i}>{renderCalDay(d, false)}</React.Fragment>)}
-            </div>
-          ) : (
-            <div className="cal-week">
-              {(calWeeks[safeWeek] || []).map((d, i) => <React.Fragment key={i}>{renderCalDay(d, true)}</React.Fragment>)}
-            </div>
-          )}
-        </>
+      {calView === "month" ? (
+        <div className="cal-month">
+          {calWeeks.flat().map((d, i) => <React.Fragment key={i}>{renderCalDay(d, false)}</React.Fragment>)}
+        </div>
+      ) : (
+        <div className="cal-week">
+          {(calWeeks[safeWeek] || []).map((d, i) => <React.Fragment key={i}>{renderCalDay(d, true)}</React.Fragment>)}
+        </div>
       )}
       {scheduleMsg && <div className="note">{scheduleMsg}</div>}
     </section>

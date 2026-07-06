@@ -222,3 +222,42 @@ test("scheduler: generated month honors certs, rest rule, and OPEN fallback", as
   const probe = await get(`/api/schedules?month=${month}&year=${year}&facilityId=${fac.id}`, nurse);
   assert.notEqual(probe.status, 200, "Tenant A staff must not read Tenant B's draft");
 });
+
+// Runs after the scheduler test on the same generated far-future month.
+test("ad-hoc shift: admin adds a single shift; cert + rest rules enforced", async () => {
+  const d = new Date();
+  const target = new Date(d.getFullYear(), d.getMonth() + 5, 1);
+  const month = target.getMonth() + 1, year = target.getFullYear();
+  const fac = (await get("/api/facilities", adminB)).body.facilities?.[0];
+  const dateStr = `${year}-${String(month).padStart(2, "0")}-05`;
+
+  // Without staffId the slot is posted to the open board as UNFILLED.
+  const open = await post("/api/shifts", adminB, { date: dateStr, slot: "Day", certification: "RN", facilityId: fac.id });
+  assert.equal(open.status, 201, JSON.stringify(open.body));
+  assert.equal(open.body.shift.status, "OPEN");
+  assert.equal(open.body.shift.openReason, "UNFILLED");
+
+  // slot-candidates offers only rest-safe, cert-matched staff; assign the top one.
+  const cands = (await get(`/api/shifts/slot-candidates?date=${dateStr}&slot=Evening&certification=RN&facilityId=${fac.id}`, adminB)).body.candidates || [];
+  if (cands.length > 0) {
+    const created = await post("/api/shifts", adminB, { date: dateStr, slot: "Evening", certification: "RN", staffId: cands[0].id, facilityId: fac.id });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.shift.status, "DRAFT", "added to a draft month → shift stays draft");
+  }
+
+  const sched = (await get(`/api/schedules?month=${month}&year=${year}&facilityId=${fac.id}`, adminB)).body.shifts as any[];
+  // Rest rule: whoever already works Day·RN that date can't be double-booked into the same slot.
+  const busy = sched.find((s) => s.staff && s.requiredCertification === "RN" && new Date(s.startTime).getDate() === 5 && (s.notes || "").startsWith("Day"));
+  if (busy) {
+    const clash = await post("/api/shifts", adminB, { date: dateStr, slot: "Day", certification: "RN", staffId: busy.staff.id, facilityId: fac.id });
+    assert.equal(clash.status, 400, "double-booking the same slot must be rejected");
+  }
+  // Cert rule: an LPN can't be given an RN shift.
+  const lpn = sched.find((s) => s.staff && s.staff.certification === "LPN");
+  if (lpn) {
+    const wrong = await post("/api/shifts", adminB, { date: dateStr, slot: "Night", certification: "RN", staffId: lpn.staff.id, facilityId: fac.id });
+    assert.equal(wrong.status, 400, "certification mismatch must be rejected");
+  }
+  // Role guard: staff can't create shifts.
+  assert.equal((await post("/api/shifts", nurse, { date: dateStr, slot: "Day", certification: "RN" })).status, 403);
+});

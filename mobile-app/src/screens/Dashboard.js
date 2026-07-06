@@ -60,6 +60,12 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
   const [workload, setWorkload] = useState({ periodId: null, status: null, staff: [], summary: { min: 0, max: 0, openShifts: 0, totalAssigned: 0 } });
   const [reassignFor, setReassignFor] = useState(null);
   const [reassignCands, setReassignCands] = useState(null);
+  // Add-a-shift panel (manager/admin): date + slot/role + candidates
+  const [addShiftFor, setAddShiftFor] = useState(null);     // 'YYYY-MM-DD' or null
+  const [addShiftPicker, setAddShiftPicker] = useState(false);
+  const [addShiftSlot, setAddShiftSlot] = useState("Day");
+  const [addShiftCert, setAddShiftCert] = useState("RN");   // NOT "addCert" — that's the certification-form action
+  const [addShiftCands, setAddShiftCands] = useState(null);
   // Timecards (manager/admin)
   const [facTimecards, setFacTimecards] = useState({ staff: [], rangeDays: 14 });
   const [tcSel, setTcSel] = useState(null);            // expanded staff in Timecards
@@ -327,6 +333,32 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     setReassignFor(shiftId); setReassignCands(null);
     try { setReassignCands((await api(`/api/shifts/${shiftId}/candidates`, { token })).candidates || []); } catch { setReassignCands([]); }
   }
+  // ── Add a single ad-hoc shift ────────────────────────────────────────────
+  async function loadAddShiftCands(dateStr, slot, cert) {
+    setAddShiftCands(null);
+    try { setAddShiftCands((await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&certification=${cert}${isAdmin && siteId ? `&facilityId=${siteId}` : ""}`, { token })).candidates || []); }
+    catch (e) { setMsg(e.message); setAddShiftCands([]); }
+  }
+  function openAddShift() {
+    const dateStr = `${year}-${pad2(month)}-01`;
+    setAddShiftFor(dateStr); setMsg("");
+    loadAddShiftCands(dateStr, addShiftSlot, addShiftCert);
+  }
+  function closeAddShift() { setAddShiftFor(null); setAddShiftCands(null); }
+  function onAddShiftDatePick(event, selected) {
+    setAddShiftPicker(false);
+    if (event.type === "dismissed" || !selected) return;
+    const str = `${selected.getFullYear()}-${pad2(selected.getMonth() + 1)}-${pad2(selected.getDate())}`;
+    setAddShiftFor(str); loadAddShiftCands(str, addShiftSlot, addShiftCert);
+  }
+  function pickAddShiftSlot(s) { setAddShiftSlot(s); loadAddShiftCands(addShiftFor, s, addShiftCert); }
+  function pickAddShiftCert(c) { setAddShiftCert(c); loadAddShiftCands(addShiftFor, addShiftSlot, c); }
+  // staffId = null posts the slot to the open board instead.
+  const createAdhocShift = (staffId) => act(async () => {
+    await api("/api/shifts", { method: "POST", token, body: { date: addShiftFor, slot: addShiftSlot, certification: addShiftCert, ...(staffId ? { staffId } : {}), ...(isAdmin && siteId ? { facilityId: siteId } : {}) } });
+    setAddShiftFor(null); setAddShiftCands(null);
+  }, "Shift added.");
+
   function onSchedPick(event, selected) {
     const which = schedPickerFor;
     setSchedPickerFor(null);
@@ -437,6 +469,8 @@ export function DashboardScreen({ token, user, onLogout, theme, onToggleTheme })
     schedRange, schedPickerFor, setSchedPickerFor, onSchedPick, scheduleDates,
     copyStaffingToAllDays, zeroDay, staffingVal, setStaffingCell, saveStaffing, generateRange,
     workload, postSchedule, openReassign, reassignFor, reassignCands, doReassign,
+    addShiftFor, openAddShift, closeAddShift, addShiftPicker, setAddShiftPicker, onAddShiftDatePick,
+    addShiftSlot, pickAddShiftSlot, addShiftCert, pickAddShiftCert, addShiftCands, createAdhocShift,
     facTimecards, tcSel, setTcSel, reopenDay, approveDay, setFixingDay, fixingDay, onFixTime,
     deleteAccount, generate,
   };

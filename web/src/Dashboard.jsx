@@ -67,6 +67,12 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
   const [reassignFor, setReassignFor] = useState(null);   // shiftId whose candidate list is open
   const [reassignCands, setReassignCands] = useState(null);
   const [reassignMsg, setReassignMsg] = useState("");
+  // Add-a-shift panel (the calendar "+"): date being added to + slot/role + candidates
+  const [addShiftFor, setAddShiftFor] = useState(null);    // "YYYY-MM-DD" or null
+  const [addSlot, setAddSlot] = useState("Day");
+  const [addShiftCert, setAddShiftCert] = useState("RN");  // NOT "addCert" — that's the certification-form action
+  const [addCands, setAddCands] = useState(null);
+  const [addMsg, setAddMsg] = useState("");
   // Calendar (draft-schedule makeover): month/week toggle + drag-and-drop state
   const [calView, setCalView] = useState("month");  // 'month' | 'week'
   const [calWeek, setCalWeek] = useState(0);         // week index within the month
@@ -426,6 +432,35 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
       loadSchedule(); loadWorkload();
     } catch (e) { setReassignMsg(e.message); }
   }
+  // ── Add a single ad-hoc shift (the calendar "+") ────────────────────────
+  async function loadAddCandidates(dateStr, slot, cert) {
+    setAddCands(null);
+    try {
+      const d = await api(`/api/shifts/slot-candidates?date=${dateStr}&slot=${slot}&certification=${cert}${siteId ? `&facilityId=${siteId}` : ""}`, { token });
+      setAddCands(d.candidates || []);
+    } catch (e) { setAddMsg(e.message); setAddCands([]); }
+  }
+  function openAddShift(dateStr) {
+    setAddShiftFor(dateStr); setAddMsg("");
+    loadAddCandidates(dateStr, addSlot, addShiftCert);
+  }
+  function closeAddShift() { setAddShiftFor(null); setAddCands(null); setAddMsg(""); }
+  function pickAddSlot(slot) { setAddSlot(slot); if (addShiftFor) loadAddCandidates(addShiftFor, slot, addShiftCert); }
+  function pickAddCert(cert) { setAddShiftCert(cert); if (addShiftFor) loadAddCandidates(addShiftFor, addSlot, cert); }
+  // staffId = null posts the slot to the open board instead.
+  async function createAdhocShift(staffId) {
+    setAddMsg("");
+    try {
+      const r = await api("/api/shifts", {
+        method: "POST", token,
+        body: { date: addShiftFor, slot: addSlot, certification: addShiftCert, ...(staffId ? { staffId } : {}), ...(siteId ? { facilityId: siteId } : {}) },
+      });
+      setScheduleMsg(r.message);
+      closeAddShift();
+      loadSchedule(); loadWorkload(); loadCost(); loadOpen();
+    } catch (e) { setAddMsg(e.message); }
+  }
+
   // Calendar drag-and-drop: swap two assigned shifts, or drop someone onto an open
   // slot to fill it (their old slot then opens). Backend enforces cert + 8h rest.
   async function moveShift(sourceShiftId, targetShiftId) {
@@ -700,6 +735,8 @@ export function Dashboard({ token, user, onLogout, theme, onToggleTheme }) {
     staffingVal, setStaffingCell, stepStaffingCell, copyStaffingToAllDays, zeroDay, saveStaffing, staffingBusy, staffingMsg,
     schedRange, setSchedRange,
     workload, reassignFor, reassignCands, reassignMsg, openReassign, doReassign,
+    addShiftFor, openAddShift, closeAddShift, addSlot, pickAddSlot, addShiftCert, pickAddCert,
+    addCands, addMsg, createAdhocShift,
     calView, setCalView, calWeek, setCalWeek,
     dragId, setDragId, dropId, setDropId, onChipDragStart, onChipDrop,
     roster, expandStaff, staffExpanded, staffDocs, staffCerts, staffMsg, relClass,
