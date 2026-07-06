@@ -1,4 +1,8 @@
 :root {
+  /* Tell the browser which mode native widgets (date-picker calendar icons,
+     scrollbars, popups) should render in — without this the calendar icon
+     stays black and vanishes on the dark theme. */
+  color-scheme: light;
   /* surfaces */
   --bg: #F4F6FB;
   --surface: #FFFFFF;
@@ -31,6 +35,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0E1424;
   --surface: #161E33;
   --surface-2: #121A2E;
